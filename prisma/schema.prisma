@@ -1,0 +1,199 @@
+// Prisma schema for Paperless Campus Event Check-in, Attendance Monitoring, and E-Certificate System
+// University of Rizal System – Cainta Campus
+// Final Two-Tier Access Model: System Accounts for ADMIN and OFFICER; Public Attendees (No accounts required)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  OFFICER
+}
+
+enum EventStatus {
+  DRAFT
+  UPCOMING
+  ONGOING
+  COMPLETED
+  CANCELLED
+}
+
+enum RegistrationStatus {
+  REGISTERED
+  CANCELLED
+}
+
+enum CertificateType {
+  PARTICIPATION
+  RECOGNITION  // Certificate of Recognition (competition/award winners)
+  WINNER       // Legacy alias kept for backward compat with existing records
+  APPRECIATION
+  ATTENDANCE
+}
+
+enum CertificateStatus {
+  ISSUED
+  REVOKED
+}
+
+// Authenticated System Accounts (Admin and Officer/Facilitator only)
+model User {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  role         Role      @default(OFFICER)
+  department   String?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  // Relations
+  createdEvents      Event[]        @relation("CreatedEvents")
+  scannedAttendances Attendance[]   @relation("OfficerScans")
+  issuedCertificates Certificate[]  @relation("IssuedCertificates")
+
+  @@map("users")
+}
+
+// Campus Events
+model Event {
+  id               String      @id @default(cuid())
+  title            String
+  description      String      @db.Text
+  venue            String
+  startDate            DateTime
+  endDate              DateTime
+  status               EventStatus @default(UPCOMING)
+  registrationOpen     Boolean     @default(true)
+  registrationOpensAt  DateTime?
+  registrationClosesAt DateTime?
+  createdById          String?
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  // Relations
+  createdBy     User?          @relation("CreatedEvents", fields: [createdById], references: [id], onDelete: SetNull)
+  registrations Registration[]
+  attendances   Attendance[]
+  certificates  Certificate[]
+  competitions  Competition[]
+
+  @@map("events")
+}
+
+// Public Student Registrations (Attendees do NOT require user accounts)
+model Registration {
+  id               String             @id @default(cuid())
+  eventId          String
+  studentName      String
+  studentNumber    String
+  email            String
+  department       String
+  yearSection      String
+  status           RegistrationStatus @default(REGISTERED)
+  registrationDate DateTime           @default(now()) // Server-generated timestamp
+  qrToken          String             @unique @default(cuid())
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  // Relations
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  attendance   Attendance?
+  certificates Certificate[]
+
+  @@unique([eventId, studentNumber])
+  @@map("registrations")
+}
+
+// Attendance Records (Verified by Officer scan)
+model Attendance {
+  id                 String   @id @default(cuid())
+  registrationId     String   @unique
+  eventId            String
+  checkInTime        DateTime @default(now()) // Server-generated timestamp
+  scannedByOfficerId String?
+  scannedByOfficerName String?
+  remarks            String?
+  createdAt          DateTime @default(now())
+
+  // Relations
+  registration     Registration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  event            Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  scannedByOfficer User?        @relation("OfficerScans", fields: [scannedByOfficerId], references: [id], onDelete: SetNull)
+
+  @@map("attendances")
+}
+
+// Competitions & Recognitions
+model Competition {
+  id           String   @id @default(cuid())
+  eventId      String
+  title        String
+  description  String?  @db.Text
+  criteriaJson String?  @db.Text
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  recognitions Recognition[]
+
+  @@map("competitions")
+}
+
+model Recognition {
+  id            String   @id @default(cuid())
+  competitionId String
+  recipientName String
+  rank          Int
+  awardTitle    String
+  finalScore    Float?
+  remarks       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // Relations
+  competition  Competition   @relation(fields: [competitionId], references: [id], onDelete: Cascade)
+
+  @@unique([competitionId, rank])
+  @@map("recognitions")
+}
+
+// Tamper-Proof E-Certificates
+model Certificate {
+  id                  String            @id @default(cuid())
+  verificationCode    String            @unique @default(cuid())
+  certificateType     CertificateType   @default(PARTICIPATION)
+  recipientName       String
+  recipientIdentifier String?           // Student Number or "Guest Speaker"
+  recipientEmail      String?
+  eventId             String
+  registrationId      String?
+  awardTitle          String?           // For Recognition awards or Speaker Topics/Roles
+  competitionTitle    String?           // Competition or category name for Recognition certs
+  eventDescription    String?           @db.Text // Event details used in the certificate body
+  signatoryPosition   String?           // e.g. "Dean, College of Computer Studies"
+  templateRef         String            @default("default_template.pdf")
+  status              CertificateStatus @default(ISSUED)
+  issuedById          String?
+  issuedByName        String?
+  issuedAt            DateTime          @default(now()) // Server-generated timestamp
+  revokedAt           DateTime?
+  revocationReason    String?
+  filePath            String?
+  createdAt           DateTime          @default(now())
+  updatedAt           DateTime          @updatedAt
+
+  // Relations
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  registration Registration? @relation(fields: [registrationId], references: [id], onDelete: SetNull)
+  issuedBy     User?         @relation("IssuedCertificates", fields: [issuedById], references: [id], onDelete: SetNull)
+
+  @@map("certificates")
+}

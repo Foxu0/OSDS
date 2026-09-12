@@ -9,39 +9,60 @@ export default function DashboardRedirect() {
   const router = useRouter();
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
+    if (status === 'loading') return;
+
+    if (!session) {
       router.replace('/login');
       return;
     }
 
-    if (status === 'authenticated' && session?.user) {
-      const role = (session.user as any).role || 'OFFICER';
-      if (role === 'ADMIN') {
+    const role = (session.user as any)?.role;
+
+    switch (role) {
+      case 'ADMIN':
         router.replace('/admin');
-      } else {
+        break;
+      case 'OSDS_OFFICER':
+        router.replace('/osds');
+        break;
+      case 'ORG_OFFICER':
+        router.replace('/org-officer');
+        break;
+      case 'STUDENT':
+        router.replace('/dashboard');
+        break;
+      case 'OFFICER':
+        // Legacy role — use existing officer dashboard
         router.replace('/officer');
-      }
+        break;
+      default:
+        router.replace('/login');
     }
   }, [session, status, router]);
 
   return (
-    <div style={{ display: 'flex', height: '100vh', alignItems: 'center', justifyContent: 'center', background: '#F8FAFC', color: '#0F172A' }}>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: '#F8FAFC'
+    }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          width: '48px',
-          height: '48px',
-          borderRadius: '50%',
-          border: '4px solid #E2E8F0',
+          width: '40px',
+          height: '40px',
+          border: '3px solid #E2E8F0',
           borderTopColor: '#2563EB',
-          animation: 'spin 1s linear infinite',
-          margin: '0 auto 16px auto',
+          borderRadius: '50%',
+          animation: 'spin 0.8s linear infinite',
+          margin: '0 auto 16px'
         }} />
-        <h2 style={{ fontSize: '20px', fontWeight: '700', color: '#0F172A', marginBottom: '8px' }}>
-          Loading Staff Workspace...
-        </h2>
-        <p style={{ color: '#64748B', fontSize: '14px' }}>Redirecting to your URS Cainta portal dashboard.</p>
+        <p style={{ color: '#64748B', fontSize: '14px', fontWeight: '500' }}>
+          Redirecting to your workspace...
+        </p>
       </div>
-      <style jsx>{`
+      <style>{`
         @keyframes spin {
           to { transform: rotate(360deg); }
         }

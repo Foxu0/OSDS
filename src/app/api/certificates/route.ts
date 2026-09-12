@@ -6,9 +6,14 @@ import {
   issueGuestSpeakerCertificate,
 } from '@/lib/serverDataService';
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
-    const certs = await getCertificates();
+    const { searchParams } = new URL(req.url);
+    const eventId = searchParams.get('eventId');
+    let certs = await getCertificates();
+    if (eventId) {
+      certs = certs.filter((c: any) => c.eventId === eventId);
+    }
     return NextResponse.json(certs);
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch certificates' }, { status: 500 });
@@ -35,11 +40,12 @@ export async function POST(req: Request) {
       return NextResponse.json(result);
     }
 
-    // 2. Certificate of Recognition (Winner / Competition)
-    if (action === 'WINNER_RECOGNITION') {
+    // 2. Manual Certificate Issuance (Participation, Recognition, Appreciation, Winner)
+    if (action === 'WINNER_RECOGNITION' || action === 'MANUAL_ISSUE') {
       const {
         eventId,
         recipientName,
+        certificateType,
         awardTitle,
         competitionTitle,
         recipientIdentifier,
@@ -47,27 +53,30 @@ export async function POST(req: Request) {
         officerId,
         officerName,
         signatoryPosition,
+        signatoryName,
         eventDescription,
       } = body;
 
-      if (!eventId || !recipientName || !awardTitle) {
+      if (!eventId || !recipientName?.trim()) {
         return NextResponse.json(
-          { success: false, message: 'Event, Recipient Name, and Award Title are required' },
+          { success: false, message: 'Event and Recipient Name are required' },
           { status: 400 }
         );
       }
 
       const cert = await issueRecognitionCertificate({
         eventId,
-        recipientName,
-        awardTitle,
+        recipientName: recipientName.trim(),
+        certificateType: certificateType || 'RECOGNITION',
+        awardTitle: awardTitle?.trim() || '',
         competitionTitle,
-        recipientIdentifier,
+        recipientIdentifier: recipientIdentifier || '',
         recipientEmail,
         officerId: officerId || 'staff-officer',
         officerName: officerName || 'Staff Officer',
-        signatoryPosition,
-        eventDescription,
+        signatoryPosition: signatoryPosition?.trim() || 'Campus Director',
+        signatoryName: signatoryName?.trim() || 'Dr. Marjorie DF. San Juan',
+        eventDescription: eventDescription?.trim() || '',
       });
 
       return NextResponse.json({ success: true, certificate: cert });

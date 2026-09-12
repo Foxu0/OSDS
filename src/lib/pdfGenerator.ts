@@ -1,377 +1,350 @@
-import { PDFDocument, rgb, StandardFonts, degrees } from 'pdf-lib';
+import { PDFDocument, rgb } from 'pdf-lib';
+import fontkit from '@pdf-lib/fontkit';
 import QRCode from 'qrcode';
+import fs from 'fs';
+import path from 'path';
 import { getCertificateVerifyUrl } from '@/lib/appUrl';
 
-// Certificate types supported
+// Supported certificate types
 export type CertType = 'RECOGNITION' | 'WINNER' | 'PARTICIPATION' | 'APPRECIATION' | 'ATTENDANCE';
 
 export interface CertificateData {
   verificationCode: string;
   recipientName: string;
-  studentId?: string;                // Student number for Participation certs
+  studentId?: string;
   certificateType: CertType;
   eventTitle: string;
-  eventDescription?: string;         // Used in certificate body text
-  awardTitle?: string;               // Recognition: award/rank; Appreciation: role/topic
-  competitionTitle?: string;         // Recognition: competition/category name
-  issuedAt: string;                  // ISO date string
+  eventDescription?: string;
+  awardTitle?: string;
+  competitionTitle?: string;
+  eventDate?: string;
+  issuedAt: string;
   signatoryName?: string;
   signatoryPosition?: string;
+  templateRef?: string;
   // Legacy aliases
   studentName?: string;
   recipientIdentifier?: string;
 }
 
-// ─── Layout constants for A4 Landscape (842.25 × 597.75 pt) ───────────────────
-// Content area starts at x≈130 (after left decorative band) to x≈800
-// Y: 0 = bottom, 597 = top. Left decorative band uses x 0–120.
-const CX = 420;   // center X of content area
-const ML = 130;   // left margin of text area
-const MR = 800;   // right margin of text area
-const TW = MR - ML; // text width
+// ─── Dimensions (A4 Landscape: 842.4 × 597.6 pt) ──────────────────────────────
+const PAGE_W = 842.4;
+const PAGE_H = 597.6;
 
-/**
- * Center-align text helper: returns x so text appears centered between ML and MR
- */
-function centerX(text: string, fontSize: number, font: any): number {
-  const w = font.widthOfTextAtSize(text, fontSize);
-  return ML + (TW - w) / 2;
+function getOrdinalDay(day: number): string {
+  if (day > 3 && day < 21) return day + 'th';
+  switch (day % 10) {
+    case 1:  return day + 'st';
+    case 2:  return day + 'nd';
+    case 3:  return day + 'rd';
+    default: return day + 'th';
+  }
+}
+
+function formatCeremonyDate(isoDateStr: string): string {
+  try {
+    const d = new Date(isoDateStr || Date.now());
+    const day = getOrdinalDay(d.getDate());
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    const month = months[d.getMonth()];
+    const year = d.getFullYear();
+    return `Given this ${day} day of ${month} ${year} at University of Rizal System Cainta, Rizal.`;
+  } catch {
+    return 'Given this day at University of Rizal System Cainta, Rizal.';
+  }
+}
+
+interface TextToken {
+  text: string;
+  bold: boolean;
 }
 
 /**
- * Wrap text into lines fitting within maxWidth, returning array of strings.
+ * Parses markdown-style **bold** markers into tokens with bold flags.
  */
-function wrapText(text: string, fontSize: number, font: any, maxWidth: number): string[] {
-  const words = text.split(' ');
-  const lines: string[] = [];
-  let current = '';
-
-  for (const word of words) {
-    const test = current ? `${current} ${word}` : word;
-    if (font.widthOfTextAtSize(test, fontSize) <= maxWidth) {
-      current = test;
+function parseTokens(raw: string): TextToken[] {
+  const tokens: TextToken[] = [];
+  const parts = raw.split(/(\*\*.*?\*\*)/g);
+  for (const part of parts) {
+    if (!part) continue;
+    if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
+      tokens.push({ text: part.slice(2, -2), bold: true });
     } else {
-      if (current) lines.push(current);
-      current = word;
+      tokens.push({ text: part, bold: false });
     }
   }
-  if (current) lines.push(current);
-  return lines;
+  return tokens;
 }
 
 /**
- * Generates a certificate PDF using the official URS Cainta e-cert template.
- * 
- * Strategy:
- *  1. Load Page 1 of ecert.pdf (clean background — URS logo + decorative borders)
- *  2. Copy it into a new single-page document
- *  3. Overlay all dynamic content programmatically
- *  4. Embed QR code pointing to /verify/[verificationCode]
+ * Splits formatted tokens into lines that fit within maxWidth.
+ */
+function wrapFormattedTokens(
+  tokens: TextToken[],
+  fontReg: any,
+  fontBold: any,
+  fontSize: number,
+  maxWidth: number
+): TextToken[][] {
+  const lines: TextToken[][] = [];
+  let currentLine: TextToken[] = [];
+  let currentLineWidth = 0;
+
+  // Decompose tokens into word units so we can wrap cleanly
+  const words: TextToken[] = [];
+  for (const token of tokens) {
+    const subWords = token.text.split(/(?<=\s)|(?=\s)/);
+    for (const sw of subWords) {
+      if (sw) {
+        words.push({ text: sw, bold: token.bold });
+      }
+    }
+  }
+
+  for (const w of words) {
+    const font = w.bold ? fontBold : fontReg;
+    const wWidth = font.widthOfTextAtSize(w.text, fontSize);
+
+    if (currentLineWidth + wWidth <= maxWidth || currentLine.length === 0) {
+      currentLine.push(w);
+      currentLineWidth += wWidth;
+    } else {
+      lines.push(currentLine);
+      currentLine = [w];
+      currentLineWidth = wWidth;
+    }
+  }
+  if (currentLine.length > 0) {
+    lines.push(currentLine);
+  }
+
+  // Trim leading/trailing whitespace tokens from each line
+  return lines.map((line) => {
+    let start = 0;
+    while (start < line.length && line[start].text.trim() === '') start++;
+    let end = line.length - 1;
+    while (end >= start && line[end].text.trim() === '') end--;
+    return line.slice(start, end + 1);
+  });
+}
+
+/**
+ * Generates an official, tamper-proof URS Cainta certificate PDF.
+ * Uses exact Canva/PPTX typography and layout:
+ * - Anastasia Script (67.9 pt) for Title
+ * - Quincy Bold (37.7 pt, all caps) for Recipient Name
+ * - Helveticish (17.0 pt & 14.4 pt) for Body & Subheads
+ * - Arimo Regular (16.3 pt & 17.0 pt) for Header & Date Line
+ * - Arapey Bold & Italic (18.5 pt) for Signatory
+ * - Official high-resolution CERT BG background & dynamic QR code
  */
 export async function generateCertificatePDF(data: CertificateData): Promise<Uint8Array> {
-  // ── 1. Load template background (Page 1 of ecert.pdf) ──────────────────────
-  let pdfDoc: PDFDocument;
-  let templateLoaded = false;
+  const pdfDoc = await PDFDocument.create();
+  pdfDoc.registerFontkit(fontkit);
 
+  const page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+
+  // ── 1. Embed Background ───────────────────────────────────────────────────
+  let bgLoaded = false;
   try {
-    let templateBytes: ArrayBuffer | null = null;
-
-    if (typeof window !== 'undefined') {
-      // Client-side: fetch from public/
-      const paths = ['/templates/ecert.pdf', '/templates/default_template.pdf'];
-      for (const p of paths) {
-        const res = await fetch(p);
-        if (res.ok) { templateBytes = await res.arrayBuffer(); break; }
-      }
-    } else {
-      // Server-side: read from filesystem
-      const fs = require('fs') as typeof import('fs');
-      const path = require('path') as typeof import('path');
-      const candidates = [
-        path.join(process.cwd(), 'public', 'templates', 'ecert.pdf'),
-        path.join(process.cwd(), 'public', 'templates', 'default_template.pdf'),
-      ];
-      for (const p of candidates) {
-        if (fs.existsSync(p)) {
-          const buf = fs.readFileSync(p);
-          templateBytes = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) as ArrayBuffer;
-          break;
-        }
-      }
+    const bgPath = path.join(process.cwd(), 'public', 'templates', 'cert_bg.png');
+    if (fs.existsSync(bgPath)) {
+      const bgBytes = fs.readFileSync(bgPath);
+      const bgImage = await pdfDoc.embedPng(bgBytes);
+      page.drawImage(bgImage, { x: 0, y: 0, width: PAGE_W, height: PAGE_H });
+      bgLoaded = true;
     }
+  } catch (err) {
+    console.warn('[pdfGenerator] Failed to embed cert_bg.png, using fallback border:', err);
+  }
 
-    if (templateBytes) {
-      // Load the full template, extract just Page 1 (clean background)
-      const templateDoc = await PDFDocument.load(templateBytes);
-      pdfDoc = await PDFDocument.create();
-      const [copiedPage] = await pdfDoc.copyPages(templateDoc, [0]); // Page index 0 = Page 1
-      pdfDoc.addPage(copiedPage);
-      templateLoaded = true;
-    } else {
-      throw new Error('Template not found');
-    }
-  } catch (e) {
-    console.warn('[pdfGenerator] Could not load template, using blank fallback:', e);
-    pdfDoc = await PDFDocument.create();
-    const page = pdfDoc.addPage([842, 598]);
-    // Draw basic URS-colored border on fallback
+  if (!bgLoaded) {
+    // Fallback decorative border
     page.drawRectangle({
-      x: 20, y: 20,
-      width: 802, height: 558,
+      x: 18, y: 18,
+      width: PAGE_W - 36, height: PAGE_H - 36,
       borderWidth: 3,
-      borderColor: rgb(0.05, 0.12, 0.45),
-      color: rgb(0.99, 0.99, 1.0),
+      borderColor: rgb(12 / 255, 31 / 255, 116 / 255),
+      color: rgb(1, 1, 1),
     });
   }
 
-  const page = pdfDoc.getPages()[0];
-  const { width, height } = page.getSize();
+  // ── 2. Load and Embed Fonts ───────────────────────────────────────────────
+  const fontsDir = path.join(process.cwd(), 'public', 'fonts');
 
-  // ── 2. Embed fonts ──────────────────────────────────────────────────────────
-  const fontBold    = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-  const fontReg     = await pdfDoc.embedFont(StandardFonts.Helvetica);
-  const fontItalic  = await pdfDoc.embedFont(StandardFonts.HelveticaOblique);
-  const fontMono    = await pdfDoc.embedFont(StandardFonts.Courier);
+  const fontAnastasia = await pdfDoc.embedFont(
+    fs.readFileSync(path.join(fontsDir, 'AnastasiaScript.otf'))
+  );
+  const fontQuincy = await pdfDoc.embedFont(
+    fs.readFileSync(path.join(fontsDir, 'Quincy-Bold.otf'))
+  );
+  const fontHelv = await pdfDoc.embedFont(
+    fs.readFileSync(path.join(fontsDir, 'Helveticish.ttf'))
+  );
+  const fontHelvBold = await pdfDoc.embedFont(
+    fs.readFileSync(path.join(fontsDir, 'Helveticish-Bold.ttf'))
+  );
+  const fontArimo = await pdfDoc.embedFont(
+    fs.readFileSync(path.join(fontsDir, 'Arimo-Regular.ttf'))
+  );
+  const fontArapeyBold = await pdfDoc.embedFont(
+    fs.readFileSync(path.join(fontsDir, 'Arapey-Bold.ttf'))
+  );
+  const fontArapeyItalic = await pdfDoc.embedFont(
+    fs.readFileSync(path.join(fontsDir, 'Arapey-Italic.ttf'))
+  );
 
-  // ── 3. Determine certificate type and build body text ──────────────────────
-  const recipientName = (data.recipientName || data.studentName || 'Recipient').trim();
-  const isRecognition  = data.certificateType === 'RECOGNITION' || data.certificateType === 'WINNER';
-  const isParticipation = data.certificateType === 'PARTICIPATION' || data.certificateType === 'ATTENDANCE';
-  const isAppreciation  = data.certificateType === 'APPRECIATION';
+  const drawCenteredText = (text: string, font: any, size: number, pdfY: number, color = rgb(0, 0, 0)) => {
+    const w = font.widthOfTextAtSize(text, size);
+    page.drawText(text, {
+      x: (PAGE_W - w) / 2,
+      y: pdfY,
+      size,
+      font,
+      color,
+    });
+  };
 
-  // Certificate title line 2 (the TYPE word)
-  let certTypeWord = 'PARTICIPATION';
-  if (isRecognition)  certTypeWord = 'RECOGNITION';
-  if (isAppreciation) certTypeWord = 'APPRECIATION';
+  // ── 3. Top Header (Arimo 16.3 pt, black) ──────────────────────────────────
+  const headerSize = 16.3;
+  drawCenteredText('Republic of the Philippines', fontArimo, headerSize, 548.5);
+  drawCenteredText('UNIVERSITY OF RIZAL SYSTEM', fontArimo, headerSize, 530.0);
+  drawCenteredText('Province of Rizal', fontArimo, headerSize, 511.5);
 
-  // Intro line
-  let introText = 'This is to certify that';
-  if (isRecognition)  introText = 'This certificate is presented to';
-  if (isAppreciation) introText = 'With heartfelt gratitude, this certificate is presented to';
+  // ── 4. Intro Subhead & Title Definition ───────────────────────────────────
+  const isRecognition = data.certificateType === 'RECOGNITION' || data.certificateType === 'WINNER';
+  const isAppreciation = data.certificateType === 'APPRECIATION';
 
-  // Body description lines (built per type)
-  const bodyLines: Array<{ text: string; bold?: boolean; italic?: boolean }> = [];
+  let introSubhead = 'award this';
+  let titleText = 'Certificate of Recognition';
 
   if (isRecognition) {
-    const award = data.awardTitle || 'Outstanding Achievement';
-    const comp  = data.competitionTitle || data.eventTitle;
-    bodyLines.push({ text: 'for achieving', italic: true });
-    bodyLines.push({ text: award, bold: true });
-    bodyLines.push({ text: 'in', italic: true });
-    bodyLines.push({ text: comp, bold: true });
-  } else if (isParticipation) {
-    const studentId = data.studentId || data.recipientIdentifier;
-    if (studentId && studentId !== 'Winner' && studentId !== 'Guest Keynote Speaker') {
-      bodyLines.push({ text: `Student ID: ${studentId}`, italic: true });
-    }
-    bodyLines.push({ text: 'for actively participating in', italic: true });
-    bodyLines.push({ text: data.eventTitle, bold: true });
-    if (data.eventDescription) {
-      bodyLines.push({ text: data.eventDescription });
-    }
+    introSubhead = 'award this';
+    titleText = 'Certificate of Recognition';
   } else if (isAppreciation) {
-    const role  = data.awardTitle || 'Distinguished Contributor';
-    bodyLines.push({ text: 'for outstanding contribution as', italic: true });
-    bodyLines.push({ text: role, bold: true });
-    bodyLines.push({ text: 'for the event', italic: true });
-    bodyLines.push({ text: data.eventTitle, bold: true });
+    introSubhead = 'presents this';
+    titleText = 'Certificate of Appreciation';
+  } else {
+    // Participation / Attendance
+    introSubhead = 'presents this';
+    titleText = 'Certificate of Participation';
   }
 
-  // Formatted date
-  const issueDateFormatted = new Date(data.issuedAt).toLocaleDateString('en-US', {
-    timeZone: 'Asia/Manila',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  });
+  // Draw Intro Subhead (Helveticish 14.4 pt)
+  drawCenteredText(introSubhead, fontHelv, 14.4, 473.0);
 
-  // ── 4. Color palette ────────────────────────────────────────────────────────
-  const navyBlue  = rgb(0.047, 0.122, 0.455);  // URS navy
-  const goldColor = rgb(0.72, 0.49, 0.06);      // URS gold
-  const darkGray  = rgb(0.20, 0.22, 0.28);
-  const midGray   = rgb(0.42, 0.45, 0.52);
-  const black     = rgb(0.08, 0.08, 0.10);
+  // ── 5. Certificate Title (Anastasia Script 67.9 pt, Royal Navy #0C1F74) ────
+  const titleColor = rgb(12 / 255, 31 / 255, 116 / 255);
+  drawCenteredText(titleText, fontAnastasia, 67.9, 400.0, titleColor);
 
-  // ── 5. Draw content (top → bottom) ─────────────────────────────────────────
+  // ── 6. Preposition "to" (Helveticish 14.4 pt) ─────────────────────────────
+  drawCenteredText('to', fontHelv, 14.4, 360.0);
 
-  // 5a. University Header ─────────────────────────────────────────────────────
-  // Skip if template already has it; still draw for fallback and positioning clarity
-  if (!templateLoaded) {
-    page.drawText('UNIVERSITY OF RIZAL SYSTEM', {
-      x: centerX('UNIVERSITY OF RIZAL SYSTEM', 13, fontBold),
-      y: height - 68,
-      size: 13, font: fontBold, color: navyBlue,
-    });
-    page.drawText('Cainta Campus', {
-      x: centerX('Cainta Campus', 10, fontItalic),
-      y: height - 84,
-      size: 10, font: fontItalic, color: darkGray,
-    });
+  // ── 7. Recipient Name (Quincy Bold 37.7 pt, All Caps) ─────────────────────
+  const rawName = (data.recipientName || data.studentName || 'Recipient').trim();
+  const recipientUpper = rawName.toUpperCase();
+
+  let nameSize = 37.7;
+  let nameWidth = fontQuincy.widthOfTextAtSize(recipientUpper, nameSize);
+  const maxNameWidth = 680;
+  if (nameWidth > maxNameWidth) {
+    nameSize = (maxNameWidth / nameWidth) * nameSize;
   }
+  drawCenteredText(recipientUpper, fontQuincy, nameSize, 316.0);
 
-  // 5b. "Certificate of" label ─────────────────────────────────────────────────
-  const certOfText = 'Certificate of';
-  page.drawText(certOfText, {
-    x: centerX(certOfText, 16, fontItalic),
-    y: height - 145,
-    size: 16, font: fontItalic, color: darkGray,
-  });
-
-  // 5c. Certificate TYPE (large, bold, navy) ───────────────────────────────────
-  const typeFontSize = certTypeWord.length > 14 ? 30 : 36;
-  page.drawText(certTypeWord, {
-    x: centerX(certTypeWord, typeFontSize, fontBold),
-    y: height - 190,
-    size: typeFontSize, font: fontBold, color: navyBlue,
-  });
-
-  // 5d. Thin gold divider line ─────────────────────────────────────────────────
+  // ── 8. Horizontal Divider Line ────────────────────────────────────────────
   page.drawLine({
-    start: { x: ML + 60, y: height - 205 },
-    end:   { x: MR - 60, y: height - 205 },
-    thickness: 1,
-    color: goldColor,
-    opacity: 0.8,
-  });
-
-  // 5e. Intro text ─────────────────────────────────────────────────────────────
-  const introWrapped = wrapText(introText, 12, fontItalic, TW - 80);
-  let curY = height - 230;
-  for (const line of introWrapped) {
-    page.drawText(line, {
-      x: centerX(line, 12, fontItalic),
-      y: curY,
-      size: 12, font: fontItalic, color: darkGray,
-    });
-    curY -= 18;
-  }
-
-  // 5f. Recipient Name (large, navy, bold) ─────────────────────────────────────
-  curY -= 8;
-  const nameFontSize = recipientName.length > 36 ? 22 : recipientName.length > 26 ? 26 : 30;
-  const nameUpper = recipientName.toUpperCase();
-  page.drawText(nameUpper, {
-    x: centerX(nameUpper, nameFontSize, fontBold),
-    y: curY,
-    size: nameFontSize, font: fontBold, color: navyBlue,
-  });
-  curY -= (nameFontSize + 4);
-
-  // Underline beneath recipient name
-  const nameWidth = fontBold.widthOfTextAtSize(nameUpper, nameFontSize);
-  const nameX = centerX(nameUpper, nameFontSize, fontBold);
-  page.drawLine({
-    start: { x: nameX, y: curY + 2 },
-    end:   { x: nameX + nameWidth, y: curY + 2 },
+    start: { x: 81.36, y: 295.0 },
+    end: { x: 761.05, y: 295.0 },
     thickness: 1.5,
-    color: navyBlue,
-    opacity: 0.6,
+    color: rgb(3 / 255, 10 / 255, 39 / 255),
   });
-  curY -= 14;
 
-  // 5g. Body description lines ─────────────────────────────────────────────────
-  for (const lineData of bodyLines) {
-    const maxW = TW - 60;
-    const lineFont = lineData.bold ? fontBold : lineData.italic ? fontItalic : fontReg;
-    const lineColor = lineData.bold ? black : midGray;
-    const lineFontSize = lineData.bold ? 13 : 12;
+  // ── 9. Body Citation Paragraph (Helveticish 16.5 pt with Bold Highlights) ─
+  let rawBodyCitation = '';
 
-    const wrapped = wrapText(lineData.text, lineFontSize, lineFont, maxW);
-    for (const wl of wrapped) {
-      page.drawText(wl, {
-        x: centerX(wl, lineFontSize, lineFont),
-        y: curY,
-        size: lineFontSize, font: lineFont, color: lineColor,
-      });
-      curY -= (lineFontSize + 5);
+  if (data.eventDescription && data.eventDescription.trim().length > 10) {
+    rawBodyCitation = data.eventDescription.trim();
+  } else if (isRecognition) {
+    const award = data.awardTitle || 'MVP';
+    const comp = data.competitionTitle || data.eventTitle || 'Campus Competition';
+    rawBodyCitation = `for being the **${award}** in the **${comp}** held at **University of Rizal System Cainta Campus**.`;
+  } else if (isAppreciation) {
+    const role = data.awardTitle || 'Distinguished Resource Speaker';
+    rawBodyCitation = `in grateful recognition and sincere appreciation of their invaluable service and dedication as **${role}** during the **${data.eventTitle}** at **University of Rizal System Cainta Campus**.`;
+  } else {
+    // Participation
+    rawBodyCitation = `for active participation and valuable engagement in the **${data.eventTitle}** at **University of Rizal System Cainta Campus**.`;
+  }
+
+  const tokens = parseTokens(rawBodyCitation);
+  const bodyFontSize = 16.0;
+  const wrappedLines = wrapFormattedTokens(tokens, fontHelv, fontHelvBold, bodyFontSize, 660);
+
+  let currentBodyY = 265.0;
+  const bodyLineHeight = 22.0;
+
+  for (const lineTokens of wrappedLines) {
+    // Measure total width of line
+    let lineWidth = 0;
+    for (const t of lineTokens) {
+      const f = t.bold ? fontHelvBold : fontHelv;
+      lineWidth += f.widthOfTextAtSize(t.text, bodyFontSize);
     }
-    curY -= 4; // extra spacing between body segments
-  }
 
-  // 5h. Date line ──────────────────────────────────────────────────────────────
-  curY -= 8;
-  const dateText = isParticipation
-    ? `Held on ${issueDateFormatted}, at URS Cainta Campus`
-    : `Given this ${issueDateFormatted}, at URS Cainta Campus`;
-  const dateWrapped = wrapText(dateText, 11, fontItalic, TW - 60);
-  for (const dl of dateWrapped) {
-    page.drawText(dl, {
-      x: centerX(dl, 11, fontItalic),
-      y: curY,
-      size: 11, font: fontItalic, color: midGray,
-    });
-    curY -= 16;
-  }
-
-  // 5i. Signatory section (left-aligned in center area) ───────────────────────
-  const signatoryName     = data.signatoryName || 'Campus Director';
-  const signatoryPosition = data.signatoryPosition || '';
-  const sigX = ML + 60;
-  const sigY = 105;
-
-  // Signature line
-  page.drawLine({
-    start: { x: sigX, y: sigY + 26 },
-    end:   { x: sigX + 200, y: sigY + 26 },
-    thickness: 1.2,
-    color: darkGray,
-  });
-
-  page.drawText(signatoryName, {
-    x: sigX,
-    y: sigY + 10,
-    size: 10, font: fontBold, color: black,
-  });
-
-  if (signatoryPosition) {
-    const posWrapped = wrapText(signatoryPosition, 9, fontItalic, 220);
-    let py = sigY - 4;
-    for (const pl of posWrapped) {
-      page.drawText(pl, {
-        x: sigX,
-        y: py,
-        size: 9, font: fontItalic, color: midGray,
+    let startX = (PAGE_W - lineWidth) / 2;
+    for (const t of lineTokens) {
+      const f = t.bold ? fontHelvBold : fontHelv;
+      page.drawText(t.text, {
+        x: startX,
+        y: currentBodyY,
+        size: bodyFontSize,
+        font: f,
+        color: rgb(0, 0, 0),
       });
-      py -= 13;
+      startX += f.widthOfTextAtSize(t.text, bodyFontSize);
     }
+    currentBodyY -= bodyLineHeight;
   }
 
-  // 5j. Verification code (bottom left) ───────────────────────────────────────
-  const verifyUrl = getCertificateVerifyUrl(data.verificationCode);
-  const codeLabel = `Verification Code: ${data.verificationCode}`;
+  // ── 10. Date Line (Arimo Regular 16.5 pt) ─────────────────────────────────
+  const dateText = formatCeremonyDate(data.issuedAt);
+  drawCenteredText(dateText, fontArimo, 16.5, 150.0);
 
-  page.drawText(codeLabel, {
-    x: 44,
-    y: 44,
-    size: 8, font: fontMono, color: navyBlue,
-  });
-  page.drawText(`Verify at: ${verifyUrl}`, {
-    x: 44,
-    y: 30,
-    size: 7, font: fontReg, color: midGray,
-  });
+  // ── 11. Signatory Block (Arapey Bold & Arapey Italic 18.5 pt) ─────────────
+  const signatoryName = (data.signatoryName || 'MARJORIE DF. SAN JUAN, PhD').trim();
+  const signatoryPosition = (data.signatoryPosition || 'Student Development Services Coordinator').trim();
 
-  // 5k. QR Code (bottom right) ─────────────────────────────────────────────────
+  drawCenteredText(signatoryName, fontArapeyBold, 18.5, 78.0);
+  drawCenteredText(signatoryPosition, fontArapeyItalic, 17.5, 54.0);
+
+  // ── 12. Verification QR Code (Positioned at 705.34, 22.27, size 111.32) ───
   try {
-    const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+    const verifyUrl = getCertificateVerifyUrl(data.verificationCode);
+    const qrBuffer = await QRCode.toBuffer(verifyUrl, {
+      errorCorrectionLevel: 'H',
       margin: 1,
-      width: 180,
-      errorCorrectionLevel: 'M',
-      color: { dark: '#0C1E72', light: '#FFFFFF' },
+      width: 260,
+      color: { dark: '#000000', light: '#FFFFFF' },
     });
-    const qrPngBytes = Buffer.from(qrDataUrl.split(',')[1], 'base64');
-    const qrImage = await pdfDoc.embedPng(qrPngBytes);
-    const qrSize = 72;
+
+    const qrImage = await pdfDoc.embedPng(qrBuffer);
+    const qrX = 705.34;
+    const qrY = 22.27;
+    const qrSize = 111.32;
+
     page.drawImage(qrImage, {
-      x: width - qrSize - 28,
-      y: 20,
+      x: qrX,
+      y: qrY,
       width: qrSize,
       height: qrSize,
     });
   } catch (qrErr) {
-    console.error('[pdfGenerator] QR code embedding failed:', qrErr);
+    console.error('[pdfGenerator] QR generation error:', qrErr);
   }
 
-  // ── 6. Save and return ──────────────────────────────────────────────────────
-  return pdfDoc.save();
+  return await pdfDoc.save();
 }

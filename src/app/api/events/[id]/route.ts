@@ -12,7 +12,8 @@ export async function GET(
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
     const winners = await getCompetitionWinners(id);
-    return NextResponse.json({ event, winners });
+    // Return event as top-level AND nested for compatibility with both consumers
+    return NextResponse.json({ ...event, winners, event });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch event' }, { status: 500 });
   }
@@ -29,7 +30,7 @@ export async function PATCH(
     if (!updated) {
       return NextResponse.json({ error: 'Event not found' }, { status: 404 });
     }
-    return NextResponse.json(updated);
+    return NextResponse.json({ ...updated, event: updated });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to update event' }, { status: 500 });
   }

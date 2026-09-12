@@ -8,11 +8,13 @@
       "startDate": "2026-09-15T01:00:00.000Z",
       "endDate": "2026-09-15T09:00:00.000Z",
       "status": "UPCOMING",
-      "registrationOpen": true,
+      "registrationOpen": false,
       "registrationOpensAt": "2026-09-01T00:00:00.000Z",
       "registrationClosesAt": "2026-09-15T01:00:00.000Z",
       "createdById": "demo-officer-1",
-      "createdAt": "2026-09-01T08:00:00.000Z"
+      "createdAt": "2026-09-01T08:00:00.000Z",
+      "updatedAt": "2026-09-12T12:20:20.599Z",
+      "evaluationOpen": true
     },
     {
       "id": "evt-2",
@@ -231,12 +233,19 @@
     {
       "id": "cert-2",
       "verificationCode": "URS-2026-WIN-99B2D4",
-      "certificateType": "WINNER",
+      "certificateType": "RECOGNITION",
       "recipientName": "Juan Dela Cruz",
+      "recipientIdentifier": "C2024_00179",
+      "recipientEmail": "juan.delacruz@urs.edu.ph",
+      "eventId": "evt-1",
+      "eventTitle": "URS Cainta IT & Innovation Summit 2026",
+      "awardTitle": "1st Place",
+      "competitionTitle": "Web Innovation Hackathon",
       "templateRef": "default_template.pdf",
       "status": "ISSUED",
       "issuedById": "demo-admin-1",
       "issuedByName": "Admin Campus Director",
+      "signatoryPosition": "Campus Director, URS Cainta",
       "issuedAt": "2026-09-02T11:00:00.000Z"
     },
     {
@@ -286,6 +295,43 @@
       "issuedByName": "Prof. Santos",
       "issuedAt": "2026-09-08T20:17:22.935Z",
       "createdAt": "2026-09-08T20:17:22.935Z"
+    },
+    {
+      "id": "cert-1789187214099-8OQJT2",
+      "verificationCode": "URS-2026-PRT-8OQJT2",
+      "certificateType": "PARTICIPATION",
+      "recipientName": "Angela Mendoza",
+      "recipientIdentifier": "C2025_00234",
+      "recipientEmail": "angela.mendoza@urs.edu.ph",
+      "eventId": "evt-3",
+      "eventTitle": "University Leadership & Cultural Recognition Night",
+      "eventDescription": "Awards night celebrating student leaders, academic distinction awardees, and student organization officers for AY 2025-2026.",
+      "registrationId": "reg-3",
+      "signatoryPosition": "Campus Director",
+      "templateRef": "default_template.pdf",
+      "status": "ISSUED",
+      "issuedById": "officer-system",
+      "issuedByName": "Campus Event Office",
+      "issuedAt": "2026-09-12T04:26:54.099Z",
+      "createdAt": "2026-09-12T04:26:54.099Z"
+    },
+    {
+      "id": "cert-1789187214099-BKWXJV",
+      "verificationCode": "URS-2026-APR-BKWXJV",
+      "certificateType": "APPRECIATION",
+      "recipientName": "Dr. Test Speaker",
+      "recipientIdentifier": "Keynote Speaker",
+      "eventId": "evt-3",
+      "eventTitle": "University Leadership & Cultural Recognition Night",
+      "awardTitle": "Keynote Speaker — University Leadership & Cultural Recognition Night",
+      "eventDescription": "Awards night celebrating student leaders, academic distinction awardees, and student organization officers for AY 2025-2026.",
+      "signatoryPosition": "Campus Director",
+      "templateRef": "default_template.pdf",
+      "status": "ISSUED",
+      "issuedById": "officer-system",
+      "issuedByName": "Campus Event Office",
+      "issuedAt": "2026-09-12T04:26:54.099Z",
+      "createdAt": "2026-09-12T04:26:54.099Z"
     }
   ],
   "officers": [
@@ -306,6 +352,42 @@
       "department": "College of Computer Studies - Event Lead",
       "status": "ACTIVE",
       "createdAt": "2026-02-15T09:00:00.000Z"
+    },
+    {
+      "id": "officer-1789203091534",
+      "name": "Prof. Carlos Mendoza",
+      "email": "carlos.mendoza@urs.edu.ph",
+      "role": "OSDS_OFFICER",
+      "department": "Office of Student Development Services",
+      "status": "ACTIVE",
+      "createdAt": "2026-09-12T08:51:31.534Z",
+      "password": "osdspassword123",
+      "passwordHash": "$2b$10$KSCXtnwGEUfSpS.dT232vOLVtrZA.YRN8Mx1l1pG4KM4PzDkxH2/e",
+      "registeredById": "demo-admin-1"
+    },
+    {
+      "id": "officer-1789203326162",
+      "name": "Engr. Elena Bautista",
+      "email": "elena.bautista@urs.edu.ph",
+      "role": "OSDS_OFFICER",
+      "department": "Office of Student Development Services",
+      "status": "ACTIVE",
+      "createdAt": "2026-09-12T08:55:26.162Z",
+      "password": "osdspassword456",
+      "passwordHash": "$2b$10$gKYLqQ4K8MXcac2diZ9D/OTFSMz/U22dYaKFftVEUqcgHBAUigEjy",
+      "registeredById": "demo-admin-1"
+    },
+    {
+      "id": "officer-1789203326624",
+      "name": "David Cruz",
+      "email": "david.cruz@urs.edu.ph",
+      "role": "ORG_OFFICER",
+      "department": "Computer Society - Head Organizer",
+      "status": "ACTIVE",
+      "createdAt": "2026-09-12T08:55:26.624Z",
+      "password": "orgpassword789",
+      "passwordHash": "$2b$10$yK5ChDeatkSgPuDjHPVcxOHH3WJBrkGKWZIWTIFJy.KVUwhGrsZr2",
+      "registeredById": "officer-1789203326162"
     }
   ],
   "winners": [
@@ -320,6 +402,23 @@
       "recordedByOfficerId": "demo-admin-1",
       "recordedByOfficerName": "Admin Campus Director",
       "certificateCode": "URS-2026-WIN-99B2D4"
+    }
+  ],
+  "evaluations": [
+    {
+      "id": "eval-1789187214786",
+      "eventId": "evt-3",
+      "studentId": "test-student-1789187214118",
+      "studentName": "Juan Dela Cruz",
+      "responses": {
+        "q1": 5,
+        "q2": 5,
+        "q3": 4,
+        "q4": 5,
+        "q5": 5,
+        "comments": "Great event!"
+      },
+      "submittedAt": "2026-09-12T04:26:54.786Z"
     }
   ]
 }

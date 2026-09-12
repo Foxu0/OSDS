@@ -4,16 +4,17 @@ import { processQRScan, getAttendanceLogs } from '@/lib/serverDataService';
 export async function POST(req: Request) {
   try {
     const body = await req.json();
-    const { qrToken, officerId, officerName } = body;
+    const { qrToken, officerId, officerName, eventId } = body;
 
     if (!qrToken) {
-      return NextResponse.json({ success: false, message: 'QR Token is required.' }, { status: 400 });
+      return NextResponse.json({ success: false, message: 'QR Token or Student ID is required.' }, { status: 400 });
     }
 
     const result = await processQRScan(
       qrToken,
       officerId || 'demo-officer-1',
-      officerName || 'Staff Officer'
+      officerName || 'Staff Officer',
+      eventId || undefined
     );
 
     return NextResponse.json(result);

@@ -38,8 +38,8 @@ export async function GET(
       awardTitle:        cert.awardTitle,
       competitionTitle:  cert.competitionTitle,
       issuedAt:          cert.issuedAt,
-      signatoryName:     cert.issuedByName,
-      signatoryPosition: cert.signatoryPosition,
+      signatoryName:     cert.signatoryName || cert.issuedByName || 'Dr. Marjorie DF. San Juan',
+      signatoryPosition: cert.signatoryPosition || 'Campus Director',
     });
 
     // Sanitize filename
@@ -58,7 +58,7 @@ export async function GET(
 
     const filename = `URS_Certificate_of_${typeLabel}_${safeRecipient}_${cert.verificationCode}.pdf`;
 
-    return new NextResponse(pdfBytes, {
+    return new NextResponse(Buffer.from(pdfBytes), {
       status: 200,
       headers: {
         'Content-Type': 'application/pdf',

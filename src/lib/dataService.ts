@@ -21,7 +21,8 @@ export async function getEvents(): Promise<CampusEvent[]> {
   try {
     const res = await fetch(`${BASE_URL}/api/events`, { cache: 'no-store' });
     if (!res.ok) throw new Error('Failed to load events');
-    return await res.json();
+    const data = await res.json();
+    return Array.isArray(data) ? data : (data.events || []);
   } catch (err) {
     console.error('getEvents error:', err);
     return [];
@@ -304,20 +305,22 @@ export async function generateBulkCertificates(eventId: string, type?: Certifica
 export async function issueRecognitionCertificate(data: {
   eventId: string;
   recipientName: string;
-  awardTitle: string;
+  awardTitle?: string;
+  certificateType?: CertificateType;
   competitionTitle?: string;
   recipientIdentifier?: string;
   recipientEmail?: string;
   officerId?: string;
   officerName?: string;
   signatoryPosition?: string;
+  signatoryName?: string;
   eventDescription?: string;
 }) {
   const res = await fetch(`${BASE_URL}/api/certificates`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      action: 'WINNER_RECOGNITION',
+      action: 'MANUAL_ISSUE',
       ...data,
     }),
   });
@@ -455,4 +458,169 @@ export async function declareWinners(competitionId: string, winnerList: any[]) {
 
 export async function getRecognitions() {
   return [];
+}
+
+// -------------------------------------------------------------
+// OFFICER ACCOUNTS & HIERARCHICAL MANAGEMENT
+// -------------------------------------------------------------
+// Admin -> OSDS Officers
+export async function getOsdsOfficers(): Promise<OfficerAccount[]> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/admin/osds-officers`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.officers || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function registerOsdsOfficer(data: {
+  name: string;
+  email: string;
+  department?: string;
+  password?: string;
+}): Promise<{ success: boolean; message: string; officer?: OfficerAccount }> {
+  const res = await fetch(`${BASE_URL}/api/admin/osds-officers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(json.error || 'Failed to register OSDS officer.');
+  }
+  return json;
+}
+
+export async function toggleOsdsOfficerStatus(id: string): Promise<boolean> {
+  const res = await fetch(`${BASE_URL}/api/admin/osds-officers`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  return res.ok;
+}
+
+// OSDS -> Org Officers
+export async function getOrgOfficers(): Promise<OfficerAccount[]> {
+  try {
+    const res = await fetch(`${BASE_URL}/api/osds/org-officers`, { cache: 'no-store' });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return data.officers || [];
+  } catch {
+    return [];
+  }
+}
+
+export async function registerOrgOfficer(data: {
+  name: string;
+  email: string;
+  department: string;
+  password?: string;
+}): Promise<{ success: boolean; message: string; officer?: OfficerAccount }> {
+  const res = await fetch(`${BASE_URL}/api/osds/org-officers`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const json = await res.json();
+  if (!res.ok) {
+    throw new Error(json.error || 'Failed to register Organization officer.');
+  }
+  return json;
+}
+
+export async function toggleOrgOfficerStatus(id: string): Promise<boolean> {
+  const res = await fetch(`${BASE_URL}/api/osds/org-officers`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  return res.ok;
+}
+
+// -------------------------------------------------------------
+// ADMIN RECORDS VAULT API METHODS
+// -------------------------------------------------------------
+export interface AdminEventRecord {
+  id: string;
+  recordType: 'EVENT';
+  title: string;
+  description: string;
+  venue: string;
+  startDate: string;
+  endDate: string;
+  status: string;
+  isArchived: boolean;
+  createdAt: string;
+  createdById?: string;
+  registrations: any[];
+  attendances: any[];
+  evaluations: any[];
+  certificates: any[];
+  stats: {
+    registrations: number;
+    attendances: number;
+    evaluations: number;
+    certificates: number;
+  };
+  raw?: any;
+}
+
+export type AdminRecordItem = AdminEventRecord;
+
+export async function getAdminRecords(params?: {
+  status?: string;
+  search?: string;
+}): Promise<{ records: AdminEventRecord[]; events: AdminEventRecord[]; counts: Record<string, number> }> {
+  try {
+    const sp = new URLSearchParams();
+    if (params?.status) sp.set('status', params.status);
+    if (params?.search) sp.set('search', params.search);
+
+    const res = await fetch(`${BASE_URL}/api/admin/records?${sp.toString()}`, { cache: 'no-store' });
+    if (!res.ok) throw new Error('Failed to load admin records');
+    return await res.json();
+  } catch (err) {
+    console.error('getAdminRecords error:', err);
+    return { records: [], events: [], counts: { total: 0, events: 0, active: 0, archived: 0, registrations: 0, attendances: 0, evaluations: 0, certificates: 0 } };
+  }
+}
+
+export async function archiveAdminRecord(type: string, id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/admin/records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'archive', type, id }),
+  });
+  return await res.json();
+}
+
+export async function unarchiveAdminRecord(type: string, id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/admin/records`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'unarchive', type, id }),
+  });
+  return await res.json();
+}
+
+export async function deleteAdminRecord(type: string, id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/admin/records`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ type, id }),
+  });
+  return await res.json();
+}
+
+export async function deleteOsdsOfficer(id: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch(`${BASE_URL}/api/admin/osds-officers`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+  });
+  return await res.json();
 }

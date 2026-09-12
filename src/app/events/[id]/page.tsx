@@ -23,6 +23,32 @@ import {
 import { CampusEvent, StudentRegistration, CompetitionWinner } from '@/types';
 import { formatManilaDate, formatManilaTime, formatManilaDateTime } from '@/lib/timezone';
 
+const IconQrCode = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+  </svg>
+);
+const IconPrinter = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+  </svg>
+);
+const IconLock = () => (
+  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+  </svg>
+);
+const IconCheck = () => (
+  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+const IconDownload = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+  </svg>
+);
+
 export default function PublicEventPage() {
   const params = useParams();
   const eventId = (params?.id as string) || '';
@@ -217,7 +243,7 @@ export default function PublicEventPage() {
       
       {/* Top Header */}
       <header style={{
-        background: '#0F172A',
+        background: 'linear-gradient(90deg, #1E3A8A 0%, #1D4ED8 100%)',
         color: '#FFFFFF',
         borderBottom: '3px solid #F59E0B',
       }}>
@@ -235,37 +261,54 @@ export default function PublicEventPage() {
             <div style={{
               width: '38px',
               height: '38px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #1E3A8A 0%, #D97706 100%)',
+              borderRadius: '10px',
+              background: '#0F172A',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontWeight: '800',
-              fontSize: '15px',
-              color: '#FFFFFF'
+              fontWeight: '900',
+              fontSize: '14px',
+              color: '#FFFFFF',
+              letterSpacing: '0.6px',
+              border: '1.5px solid rgba(255, 255, 255, 0.25)',
+              boxShadow: '0 3px 8px rgba(0, 0, 0, 0.3)'
             }}>
               URS
             </div>
             <div>
-              <div style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF', lineHeight: 1.1 }}>
-                University of Rizal System
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#FFFFFF', lineHeight: 1.15 }}>
+                Paperless Campus
               </div>
-              <div style={{ fontSize: '11px', color: '#FBBF24', fontWeight: '600', textTransform: 'uppercase' }}>
-                Cainta Campus Portal
+              <div style={{ fontSize: '10.5px', color: '#FDE68A', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                URS Cainta Campus • Events Portal
               </div>
             </div>
           </Link>
 
           <div style={{ display: 'flex', gap: '10px' }}>
-            <Link href="/" className="btn btn-secondary" style={{ fontSize: '13px', padding: '7px 14px' }}>
-              ← All Events
+            <Link href="/" style={{
+              fontSize: '12px',
+              fontWeight: '600',
+              padding: '7px 14px',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              background: 'rgba(255, 255, 255, 0.12)',
+              color: '#FFFFFF',
+              border: '1px solid rgba(255, 255, 255, 0.25)',
+              borderRadius: '8px',
+              textDecoration: 'none',
+              backdropFilter: 'blur(8px)',
+              transition: 'all 0.15s ease'
+            }}>
+              Home
             </Link>
             <button
               onClick={() => setShowEventQrModal(true)}
               className="btn btn-secondary"
-              style={{ fontSize: '13px', padding: '7px 14px' }}
+              style={{ fontSize: '13px', padding: '7px 14px', display: 'flex', alignItems: 'center', gap: '6px' }}
             >
-              📢 Event QR Flyer
+              <IconQrCode /> Event QR Flyer
             </button>
           </div>
         </div>
@@ -311,17 +354,17 @@ export default function PublicEventPage() {
             fontSize: '13px'
           }}>
             <div>
-              <div style={{ color: '#64748B', fontWeight: '600', marginBottom: '2px' }}>📍 Official Venue</div>
+              <div style={{ color: '#64748B', fontWeight: '600', marginBottom: '2px' }}>Official Venue</div>
               <div style={{ color: '#1E40AF', fontWeight: '700' }}>{event.venue}</div>
             </div>
 
             <div>
-              <div style={{ color: '#64748B', fontWeight: '600', marginBottom: '2px' }}>📅 Event Date</div>
+              <div style={{ color: '#64748B', fontWeight: '600', marginBottom: '2px' }}>Event Date</div>
               <div style={{ color: '#0F172A', fontWeight: '700' }}>{formatManilaDate(event.startDate)}</div>
             </div>
 
             <div>
-              <div style={{ color: '#64748B', fontWeight: '600', marginBottom: '2px' }}>⏰ Event Time</div>
+              <div style={{ color: '#64748B', fontWeight: '600', marginBottom: '2px' }}>Event Time</div>
               <div style={{ color: '#0F172A', fontWeight: '700' }}>
                 {formatManilaTime(event.startDate)} – {formatManilaTime(event.endDate)}
               </div>
@@ -352,10 +395,9 @@ export default function PublicEventPage() {
                 borderRadius: '50%',
                 background: '#ECFDF5',
                 color: '#059669',
-                fontSize: '28px',
                 marginBottom: '12px'
               }}>
-                ✓
+                <IconCheck />
               </div>
               <h2 style={{ fontSize: '24px', fontWeight: '800', color: '#0F172A', marginBottom: '6px' }}>
                 Registration Confirmed!
@@ -416,7 +458,7 @@ export default function PublicEventPage() {
                 fontWeight: '700',
                 marginBottom: '12px'
               }}>
-                <span>🏫 {formatClassDisplay(
+                <span>{formatClassDisplay(
                   regResult.registration.department,
                   regResult.registration.yearLevel || regResult.registration.yearSection,
                   regResult.registration.section || regResult.registration.yearSection
@@ -424,7 +466,7 @@ export default function PublicEventPage() {
               </div>
               <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px dashed #CBD5E1', width: '100%', fontSize: '12px', color: '#334155', textAlign: 'center' }}>
                 <div><strong>Event:</strong> {event.title}</div>
-                <div style={{ marginTop: '2px' }}><strong>Venue:</strong> 📍 <span style={{ fontWeight: '700', color: '#1E40AF' }}>{event.venue}</span></div>
+                <div style={{ marginTop: '2px' }}><strong>Venue:</strong> <span style={{ fontWeight: '700', color: '#1E40AF' }}>{event.venue}</span></div>
               </div>
               <p style={{ fontSize: '11px', color: '#94A3B8', marginTop: '8px' }}>
                 Official Server Registration Time: {formatManilaDateTime(regResult.registration.registrationDate)}
@@ -437,15 +479,15 @@ export default function PublicEventPage() {
                 className="btn btn-primary"
                 style={{ padding: '12px 24px' }}
               >
-                🎫 Open Fullscreen Ticket Page →
+                Open Fullscreen Ticket Page →
               </Link>
               <button
                 type="button"
                 onClick={() => window.print()}
                 className="btn btn-secondary"
-                style={{ padding: '12px 24px' }}
+                style={{ padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '8px' }}
               >
-                🖨️ Print / Save PDF
+                <IconPrinter /> Print / Save PDF
               </button>
             </div>
           </div>
@@ -454,7 +496,7 @@ export default function PublicEventPage() {
           <div className="card" style={{ padding: '36px', marginBottom: '40px' }}>
             <div style={{ marginBottom: '24px' }}>
               <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0F172A', marginBottom: '6px' }}>
-                📝 Public Event Registration
+                Public Event Registration
               </h2>
               <p style={{ color: '#64748B', fontSize: '14px' }}>
                 Enter your official URS Cainta student details to generate your Personal Attendance QR Pass. No account login required.
@@ -706,10 +748,9 @@ export default function PublicEventPage() {
               borderRadius: '50%',
               background: '#E2E8F0',
               color: '#64748B',
-              fontSize: '30px',
               marginBottom: '16px'
             }}>
-              🔒
+              <IconLock />
             </div>
             <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#334155', marginBottom: '8px' }}>
               Registration Closed
@@ -724,7 +765,7 @@ export default function PublicEventPage() {
         {winners.length > 0 && (
           <div className="card" style={{ padding: '32px', marginBottom: '40px' }}>
             <h3 style={{ fontSize: '20px', fontWeight: '800', color: '#0F172A', marginBottom: '16px' }}>
-              🏆 Official Competition Results & Recognitions
+              Official Competition Results & Recognitions
             </h3>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
               {winners.map((win) => (
@@ -789,8 +830,8 @@ export default function PublicEventPage() {
             )}
 
             <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
-              <button onClick={downloadEventQr} className="btn btn-primary" style={{ padding: '8px 18px' }}>
-                💾 Download Image
+              <button onClick={downloadEventQr} className="btn btn-primary" style={{ padding: '8px 18px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <IconDownload /> Download Image
               </button>
               <button onClick={() => setShowEventQrModal(false)} className="btn btn-secondary" style={{ padding: '8px 18px' }}>
                 Close

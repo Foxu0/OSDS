@@ -54,7 +54,7 @@ export async function GET(req: Request) {
     }
 
     const registrations = await getRegistrationsForEvent(eventId);
-    return NextResponse.json(registrations);
+    return NextResponse.json({ registrations });
   } catch (error: any) {
     return NextResponse.json({ error: error.message || 'Failed to fetch registrations' }, { status: 500 });
   }

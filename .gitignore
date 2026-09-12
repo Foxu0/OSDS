@@ -9,3 +9,7 @@ scratch/
 scratch/
 tsconfig.tsbuildinfo
 prisma.config.ts.bak
+.agents/
+.claude/
+.cursor/
+.devin/

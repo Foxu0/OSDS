@@ -4,6 +4,12 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 
+const IconSearch = ({ size = 18 }: { size?: number }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+  </svg>
+);
+
 export default function VerificationSearchPage() {
   const [code, setCode] = useState('');
   const router = useRouter();
@@ -20,7 +26,7 @@ export default function VerificationSearchPage() {
       
       {/* Top Header */}
       <header style={{
-        background: '#0F172A',
+        background: 'linear-gradient(90deg, #1E3A8A 0%, #1D4ED8 100%)',
         color: '#FFFFFF',
         borderBottom: '3px solid #F59E0B',
       }}>
@@ -34,31 +40,48 @@ export default function VerificationSearchPage() {
         }}>
           <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none' }}>
             <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #1E3A8A 0%, #D97706 100%)',
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              background: '#0F172A',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontWeight: '800',
-              fontSize: '15px',
-              color: '#FFFFFF'
+              fontWeight: '900',
+              fontSize: '14px',
+              color: '#FFFFFF',
+              letterSpacing: '0.6px',
+              border: '1.5px solid rgba(255, 255, 255, 0.25)',
+              boxShadow: '0 3px 8px rgba(0, 0, 0, 0.3)'
             }}>
               URS
             </div>
             <div>
-              <div style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF', lineHeight: 1.1 }}>
-                University of Rizal System
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#FFFFFF', lineHeight: 1.15 }}>
+                Paperless Campus
               </div>
-              <div style={{ fontSize: '11px', color: '#FBBF24', fontWeight: '600', textTransform: 'uppercase' }}>
-                Official E-Certificate Registry
+              <div style={{ fontSize: '10.5px', color: '#FDE68A', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                Official E-Certificate Registry • URS Cainta
               </div>
             </div>
           </Link>
 
-          <Link href="/" className="btn btn-secondary" style={{ fontSize: '13px', padding: '6px 14px' }}>
-            ← All Events
+          <Link href="/" style={{
+            fontSize: '12px',
+            fontWeight: '600',
+            padding: '7px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: 'rgba(255, 255, 255, 0.12)',
+            color: '#FFFFFF',
+            border: '1px solid rgba(255, 255, 255, 0.25)',
+            borderRadius: '8px',
+            textDecoration: 'none',
+            backdropFilter: 'blur(8px)',
+            transition: 'all 0.15s ease'
+          }}>
+            Home
           </Link>
         </div>
       </header>
@@ -78,9 +101,9 @@ export default function VerificationSearchPage() {
               background: '#EFF6FF',
               border: '2px solid #BFDBFE',
               marginBottom: '14px',
-              fontSize: '26px',
+              color: '#2563EB',
             }}>
-              🔍
+              <IconSearch size={26} />
             </div>
             <h1 style={{ fontSize: '24px', fontWeight: '800', color: '#0F172A', marginBottom: '6px' }}>
               Verify E-Certificate Authenticity
@@ -108,9 +131,9 @@ export default function VerificationSearchPage() {
               <button
                 type="submit"
                 className="btn btn-primary"
-                style={{ width: '100%', padding: '12px', fontSize: '15px' }}
+                style={{ width: '100%', padding: '12px', fontSize: '15px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
               >
-                🔍 Check Certificate Authenticity
+                <IconSearch size={16} /> Check Certificate Authenticity
               </button>
             </form>
 

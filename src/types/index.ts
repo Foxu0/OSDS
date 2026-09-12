@@ -1,10 +1,11 @@
 // Domain Types for Paperless Campus Event Check-in & E-Certificate System
 // University of Rizal System – Cainta Campus
-// Final Two-Tier Architecture: Authenticated Roles (ADMIN, OFFICER) + Public Attendees (No account)
+// Four-Role Architecture: STUDENT | ORG_OFFICER | OSDS_OFFICER | ADMIN
 
-export type Role = 'ADMIN' | 'OFFICER';
+// 'OFFICER' is kept for backward compatibility with legacy OfficerAccount seed data
+export type Role = 'STUDENT' | 'ORG_OFFICER' | 'OSDS_OFFICER' | 'ADMIN' | 'OFFICER';
 
-export type EventStatus = 'DRAFT' | 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
+export type EventStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
 
 export type RegistrationStatus = 'REGISTERED' | 'CANCELLED';
 
@@ -12,12 +13,15 @@ export type CertificateType = 'PARTICIPATION' | 'RECOGNITION' | 'WINNER' | 'APPR
 
 export type CertificateStatus = 'ISSUED' | 'REVOKED';
 
+export type FormFieldType = 'SHORT_TEXT' | 'LONG_TEXT' | 'DROPDOWN' | 'CHECKBOX' | 'RADIO' | 'RATING';
+
 export interface UserSession {
   id: string;
   name: string;
   email: string;
   role: Role;
   department?: string | null;
+  studentNumber?: string | null;
 }
 
 export interface OfficerAccount {
@@ -28,6 +32,9 @@ export interface OfficerAccount {
   department: string;
   status: 'ACTIVE' | 'INACTIVE';
   createdAt: string;
+  password?: string;
+  passwordHash?: string;
+  registeredById?: string;
 }
 
 export type PublicRegistrationStatus =
@@ -45,11 +52,19 @@ export interface CampusEvent {
   endDate: string;
   status: EventStatus;
   registrationOpen?: boolean;
+  evaluationOpen?: boolean;
   registrationOpensAt?: string;
   registrationClosesAt?: string;
   createdById?: string;
+  createdByRole?: Role;
+  organizationName?: string;
+  bannerImage?: string;
+  facilitators?: string[];
   createdAt: string;
   updatedAt?: string;
+  approvedById?: string;
+  approvedAt?: string;
+  rejectionReason?: string;
 }
 
 export interface StudentRegistration {
@@ -57,17 +72,18 @@ export interface StudentRegistration {
   eventId: string;
   eventTitle?: string;
   studentName: string;
-  studentNumber: string; // URS Cainta format: C2024_00179
+  studentNumber: string;
   email: string;
-  department: string; // Course/Program: BT-Auto, BSIT, BSE, BEED, BTLED
-  course?: string; // Course alias
-  yearSection: string; // e.g. "3B" or "BSIT — 3B"
-  yearLevel?: string; // 1st Year, 2nd Year, 3rd Year, 4th Year
-  section?: string; // A, B, C, D, E
+  department: string;
+  course?: string;
+  yearSection: string;
+  yearLevel?: string;
+  section?: string;
   status: RegistrationStatus;
-  registrationDate: string; // Server-generated ISO string (Asia/Manila)
+  registrationDate: string;
   qrToken: string;
   createdAt: string;
+  formResponses?: Record<string, string | string[]>;
 }
 
 export interface AttendanceRecord {
@@ -82,7 +98,7 @@ export interface AttendanceRecord {
   yearSection?: string;
   yearLevel?: string;
   section?: string;
-  checkInTime: string; // Server-generated ISO string (Asia/Manila)
+  checkInTime: string;
   scannedByOfficerId: string;
   scannedByOfficerName: string;
   remarks?: string;
@@ -93,20 +109,21 @@ export interface CertificateRecord {
   verificationCode: string;
   certificateType: CertificateType;
   recipientName: string;
-  recipientIdentifier?: string; // Student Number or "Guest Speaker"
+  recipientIdentifier?: string;
   recipientEmail?: string;
   eventId: string;
   eventTitle: string;
-  eventDescription?: string;   // Event details used in the certificate body
+  eventDescription?: string;
   registrationId?: string;
-  awardTitle?: string;         // e.g. "Grand Champion", keynote topic, or recipient role
+  awardTitle?: string;
   competitionTitle?: string;
-  signatoryPosition?: string;  // e.g. "Dean, College of Computer Studies"
+  signatoryPosition?: string;
+  signatoryName?: string;
   templateRef: string;
   status: CertificateStatus;
   issuedById?: string;
   issuedByName?: string;
-  issuedAt: string; // Server-generated ISO string (Asia/Manila)
+  issuedAt: string;
   revokedAt?: string;
   revocationReason?: string;
   filePath?: string;
@@ -127,7 +144,36 @@ export interface CompetitionWinner {
   certificateCode?: string;
 }
 
-// Judge Scoring Criteria (for officer/competition record keeping)
+// Form Builder Types
+export interface FormField {
+  id: string;
+  type: FormFieldType;
+  label: string;
+  required: boolean;
+  options?: string[];       // for DROPDOWN, CHECKBOX, RADIO
+  ratingScale?: number;     // for RATING (default 5)
+  placeholder?: string;
+}
+
+export interface EventForm {
+  id: string;
+  eventId: string;
+  formType: 'REGISTRATION' | 'EVALUATION';
+  fields: FormField[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EvaluationResponse {
+  id: string;
+  eventId: string;
+  studentId: string;
+  studentName: string;
+  responses: Record<string, string | number | string[]>;
+  submittedAt: string;
+}
+
+// Judge Scoring Criteria
 export interface Criterion {
   id: string;
   name: string;

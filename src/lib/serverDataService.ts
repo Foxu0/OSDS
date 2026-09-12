@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import {
   CampusEvent,
@@ -29,7 +30,7 @@ export * from '@/lib/registrationWindow';
 export * from '@/lib/studentRules';
 
 // Persistent Local File-based Database Store to guarantee data survives restarts
-const DATA_DIR = path.join(process.cwd(), 'data');
+const DATA_DIR = process.env.VERCEL ? path.join('/tmp', 'data') : path.join(process.cwd(), 'data');
 const DB_FILE = path.join(DATA_DIR, 'paperless-campus-db.json');
 
 interface LocalDB {
@@ -284,6 +285,15 @@ function getDefaultDB(): LocalDB {
 
 function loadDB(): LocalDB {
   try {
+    if (process.env.VERCEL && !fs.existsSync(DB_FILE)) {
+      const bundledPath = path.join(process.cwd(), 'data', 'paperless-campus-db.json');
+      if (fs.existsSync(bundledPath)) {
+        if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+        const content = fs.readFileSync(bundledPath, 'utf-8');
+        fs.writeFileSync(DB_FILE, content, 'utf-8');
+        return JSON.parse(content);
+      }
+    }
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
@@ -308,6 +318,15 @@ function saveDB(data: LocalDB): void {
   } catch (err) {
     console.error('Error writing local db file:', err);
   }
+}
+
+// Public wrappers used by new API route handlers (forms, approvals, evaluations)
+export function getDb(): Record<string, any> {
+  return loadDB() as any;
+}
+
+export function saveDb(data: Record<string, any>): void {
+  saveDB(data as any);
 }
 
 // -------------------------------------------------------------
@@ -348,11 +367,12 @@ export async function createEvent(data: {
     venue: data.venue,
     startDate: data.startDate,
     endDate: data.endDate,
-    status: 'UPCOMING',
+    status: (data as any).status || 'UPCOMING',
     registrationOpen: data.registrationOpen ?? true,
     registrationOpensAt,
     registrationClosesAt,
-    createdById: data.createdById || 'demo-officer-1',
+    createdById: (data as any).createdById || 'demo-officer-1',
+    createdByRole: (data as any).createdByRole,
     createdAt: getOfficialServerTimestamp(),
   };
 
@@ -578,13 +598,24 @@ export async function getRegistrationsForEvent(
   return db.registrations.filter((r) => r.eventId === eventId);
 }
 
+export async function getRegistrations(
+  eventId?: string
+): Promise<StudentRegistration[]> {
+  const db = loadDB();
+  if (eventId) {
+    return db.registrations.filter((r) => r.eventId === eventId);
+  }
+  return db.registrations;
+}
+
 // -------------------------------------------------------------
 // QR ATTENDANCE SCANNER & MONITORING
 // -------------------------------------------------------------
 export async function processQRScan(
   qrToken: string,
   officerId: string,
-  officerName: string
+  officerName: string,
+  eventId?: string
 ): Promise<{
   success: boolean;
   isDuplicate: boolean;
@@ -593,13 +624,51 @@ export async function processQRScan(
   attendance?: AttendanceRecord;
 }> {
   const db = loadDB();
-  const reg = db.registrations.find((r) => r.qrToken === qrToken.trim());
+  const cleanToken = qrToken.trim();
+  const cleanLower = cleanToken.toLowerCase();
+
+  let reg: StudentRegistration | undefined;
+  if (eventId) {
+    reg = db.registrations.find(
+      (r) =>
+        r.eventId === eventId &&
+        (r.qrToken === cleanToken ||
+          r.studentNumber?.toLowerCase() === cleanLower ||
+          r.id === cleanToken)
+    );
+    if (!reg) {
+      const otherReg = db.registrations.find(
+        (r) =>
+          r.qrToken === cleanToken ||
+          r.studentNumber?.toLowerCase() === cleanLower
+      );
+      if (otherReg) {
+        return {
+          success: false,
+          isDuplicate: false,
+          message: `Attendee ${otherReg.studentName} (${otherReg.studentNumber}) is registered for "${otherReg.eventTitle}", not this event.`,
+        };
+      }
+      return {
+        success: false,
+        isDuplicate: false,
+        message: 'No registration record found for this Student ID or QR code.',
+      };
+    }
+  } else {
+    reg = db.registrations.find(
+      (r) =>
+        r.qrToken === cleanToken ||
+        r.studentNumber?.toLowerCase() === cleanLower ||
+        r.id === cleanToken
+    );
+  }
 
   if (!reg) {
     return {
       success: false,
       isDuplicate: false,
-      message: 'Invalid or Unrecognized QR Code Token. Verify registration.',
+      message: 'Invalid or Unrecognized QR Code Token / Student ID.',
     };
   }
 
@@ -711,17 +780,147 @@ export async function getLiveAttendanceMonitoring(eventId: string): Promise<{
 // -------------------------------------------------------------
 export async function getCertificates(): Promise<CertificateRecord[]> {
   const db = loadDB();
-  return db.certificates.sort(
-    (a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime()
-  );
+  return db.certificates
+    .map((c) => {
+      let eventTitle = c.eventTitle;
+      if (!eventTitle && c.eventId) {
+        const ev = db.events.find((e) => e.id === c.eventId);
+        if (ev) eventTitle = ev.title;
+      }
+      return {
+        ...c,
+        eventTitle: eventTitle || 'Campus Event',
+      };
+    })
+    .sort(
+      (a, b) => new Date(b.issuedAt).getTime() - new Date(a.issuedAt).getTime()
+    );
+}
+
+export interface CertificateDossier {
+  certificate: CertificateRecord;
+  event: CampusEvent | null;
+  facilitators: Array<{
+    id: string;
+    name: string;
+    department?: string;
+    role: string;
+  }>;
+  attendees: Array<{
+    id: string;
+    studentName: string;
+    studentNumber: string;
+    department: string;
+    yearSection: string;
+    checkedIn: boolean;
+    checkInTime?: string;
+  }>;
+  stats: {
+    totalRegistered: number;
+    totalCheckedIn: number;
+  };
 }
 
 export async function getCertificateByCode(code: string): Promise<CertificateRecord | null> {
   const db = loadDB();
   const cleanCode = code.trim().toUpperCase();
-  return (
-    db.certificates.find((c) => c.verificationCode.toUpperCase() === cleanCode) || null
-  );
+  const cert = db.certificates.find((c) => c.verificationCode.toUpperCase() === cleanCode) || null;
+  if (cert) {
+    if (!cert.eventTitle && cert.eventId) {
+      const ev = db.events.find((e) => e.id === cert.eventId);
+      if (ev) cert.eventTitle = ev.title;
+    }
+    if (!cert.eventTitle) cert.eventTitle = 'Campus Event';
+  }
+  return cert;
+}
+
+export async function getCertificateDossierByCode(code: string): Promise<CertificateDossier | null> {
+  const db = loadDB();
+  const cleanCode = code.trim().toUpperCase();
+  const cert = await getCertificateByCode(cleanCode);
+  if (!cert) return null;
+
+  let event: CampusEvent | null = null;
+  if (cert.eventId) {
+    event = db.events.find((e) => e.id === cert.eventId) || null;
+  }
+
+  let facilitators: any[] = [];
+  if (event && event.facilitators && event.facilitators.length > 0) {
+    facilitators = event.facilitators.map((f: any) =>
+      typeof f === 'string'
+        ? { name: f, role: 'Facilitator', department: 'Event Facilitator' }
+        : { name: f.name || '', role: f.role || 'Facilitator', department: f.department || f.role || 'Committee' }
+    );
+  } else {
+    facilitators = db.officers.map((o) => ({
+      name: o.name,
+      role: o.role,
+      department: o.department,
+    }));
+  }
+
+  const eventId = cert.eventId;
+  const registrations = eventId ? db.registrations.filter((r) => r.eventId === eventId) : [];
+  const evaluations = eventId ? ((db as any).evaluations || []).filter((e: any) => e.eventId === eventId) : [];
+  const attendances = eventId ? db.attendances.filter((a) => a.eventId === eventId) : [];
+  const checkedInRegIds = new Set(attendances.map((a) => a.registrationId));
+
+  const evaluatedStudentIds = new Set([
+    ...evaluations.map((e: any) => e.studentId).filter(Boolean),
+    ...evaluations.map((e: any) => e.studentName?.toLowerCase().trim()).filter(Boolean),
+    ...attendances.map((a) => a.studentNumber).filter(Boolean),
+  ]);
+
+  const attendees = registrations.map((r) => {
+    const isAttended = Boolean(
+      checkedInRegIds.has(r.id) ||
+      (r.studentNumber && evaluatedStudentIds.has(r.studentNumber)) ||
+      (r.studentName && evaluatedStudentIds.has(r.studentName.toLowerCase().trim()))
+    );
+    return {
+      id: r.id,
+      studentName: r.studentName,
+      studentNumber: r.studentNumber,
+      department: r.department,
+      yearSection: r.yearSection,
+      checkedIn: isAttended,
+      status: isAttended ? 'ATTENDED' : 'REGISTERED',
+    };
+  });
+
+  const regNames = new Set(registrations.map((r) => r.studentName.toLowerCase().trim()));
+  const regNumbers = new Set(registrations.map((r) => (r.studentNumber || '').toUpperCase().trim()));
+
+  evaluations.forEach((ev: any, idx: number) => {
+    const name = ev.studentName?.trim() || '';
+    const sId = ev.studentId?.trim() || '';
+    if (name && !regNames.has(name.toLowerCase()) && !regNumbers.has(sId.toUpperCase())) {
+      attendees.push({
+        id: `eval-att-${idx}`,
+        studentName: name,
+        studentNumber: sId.startsWith('test-') ? 'N/A' : sId,
+        department: 'Attendee (Verified via Evaluation)',
+        yearSection: 'Attendee',
+        checkedIn: true,
+        status: 'ATTENDED',
+      });
+    }
+  });
+
+  const verifiedCount = attendees.filter((a) => a.checkedIn).length;
+
+  return {
+    certificate: cert,
+    event,
+    facilitators,
+    attendees,
+    stats: {
+      totalRegistered: attendees.length,
+      totalCheckedIn: verifiedCount,
+    },
+  };
 }
 
 export async function issueParticipationCertificatesBatch(
@@ -818,57 +1017,69 @@ export async function issueParticipationCertificatesBatch(
 export async function issueRecognitionCertificate(data: {
   eventId: string;
   recipientName: string;
-  awardTitle: string;        // e.g. "Grand Champion", "1st Runner-Up"
-  competitionTitle?: string; // e.g. "Web Innovation Hackathon"
+  awardTitle?: string;
+  certificateType?: CertificateType;
+  competitionTitle?: string;
   recipientIdentifier?: string;
   recipientEmail?: string;
   officerId: string;
   officerName: string;
   signatoryPosition?: string;
+  signatoryName?: string;
   eventDescription?: string;
 }): Promise<CertificateRecord> {
   const db = loadDB();
   const event = db.events.find((e) => e.id === data.eventId);
   const randomHex = Math.random().toString(36).substring(2, 8).toUpperCase();
-  const code = `URS-${new Date().getFullYear()}-REC-${randomHex}`;
+  
+  const certType: CertificateType = data.certificateType || 'RECOGNITION';
+  let typePrefix = 'REC';
+  if (certType === 'PARTICIPATION' || certType === 'ATTENDANCE') typePrefix = 'PRT';
+  else if (certType === 'APPRECIATION') typePrefix = 'APR';
+  else if (certType === 'WINNER') typePrefix = 'WIN';
+
+  const code = `URS-${new Date().getFullYear()}-${typePrefix}-${randomHex}`;
   const serverTimestamp = getOfficialServerTimestamp();
 
   const newCert: CertificateRecord = {
     id: `cert-${Date.now()}-${randomHex}`,
     verificationCode: code,
-    certificateType: 'RECOGNITION',
+    certificateType: certType,
     recipientName: data.recipientName.trim(),
     recipientIdentifier: data.recipientIdentifier?.trim() || '',
     recipientEmail: data.recipientEmail?.trim(),
     eventId: data.eventId,
-    eventTitle: event?.title || 'Campus Competition',
+    eventTitle: event?.title || 'Campus Event',
     eventDescription: data.eventDescription || event?.description,
-    awardTitle: data.awardTitle.trim(),
+    awardTitle: data.awardTitle?.trim() || '',
     competitionTitle: data.competitionTitle?.trim(),
-    signatoryPosition: data.signatoryPosition,
+    signatoryPosition: data.signatoryPosition || 'Campus Director',
+    signatoryName: data.signatoryName || data.officerName || 'Dr. Marjorie DF. San Juan',
     templateRef: 'default_template.pdf',
     status: 'ISSUED',
     issuedById: data.officerId,
-    issuedByName: data.officerName,
+    issuedByName: data.signatoryName || data.officerName,
     issuedAt: serverTimestamp,
     createdAt: serverTimestamp,
   };
 
   db.certificates.unshift(newCert);
 
-  // Also record in winners store for backward compat
-  const winnerRecord: CompetitionWinner = {
-    id: `win-${Date.now()}`,
-    eventId: data.eventId,
-    participantName: data.recipientName,
-    rank: data.awardTitle.toLowerCase().includes('champion') ? 1 : 2,
-    awardTitle: data.awardTitle,
-    awardedAt: serverTimestamp,
-    recordedByOfficerId: data.officerId,
-    recordedByOfficerName: data.officerName,
-    certificateCode: code,
-  };
-  db.winners.unshift(winnerRecord);
+  // Also record in winners store if it has winner/recognition distinction
+  if (data.awardTitle && (certType === 'WINNER' || certType === 'RECOGNITION')) {
+    const winnerRecord: CompetitionWinner = {
+      id: `win-${Date.now()}`,
+      eventId: data.eventId,
+      participantName: data.recipientName,
+      rank: data.awardTitle.toLowerCase().includes('champion') ? 1 : 2,
+      awardTitle: data.awardTitle,
+      awardedAt: serverTimestamp,
+      recordedByOfficerId: data.officerId,
+      recordedByOfficerName: data.officerName,
+      certificateCode: code,
+    };
+    db.winners.unshift(winnerRecord);
+  }
 
   saveDB(db);
 
@@ -880,7 +1091,7 @@ export async function issueRecognitionCertificate(data: {
         create: {
           id: newCert.id,
           verificationCode: code,
-          certificateType: 'RECOGNITION',
+          certificateType: certType,
           recipientName: newCert.recipientName,
           recipientIdentifier: newCert.recipientIdentifier,
           recipientEmail: newCert.recipientEmail,
@@ -890,7 +1101,7 @@ export async function issueRecognitionCertificate(data: {
           eventDescription: newCert.eventDescription,
           signatoryPosition: newCert.signatoryPosition,
           issuedById: data.officerId,
-          issuedByName: data.officerName,
+          issuedByName: newCert.issuedByName,
           issuedAt: new Date(serverTimestamp),
         },
         update: {},
@@ -1131,28 +1342,98 @@ export async function searchStudentRecords(query: string): Promise<
 
 export async function getOfficers(): Promise<OfficerAccount[]> {
   const db = loadDB();
-  return db.officers;
+  return db.officers || [];
+}
+
+export async function getOsdsOfficers(): Promise<OfficerAccount[]> {
+  const db = loadDB();
+  return (db.officers || []).filter((o) => o.role === 'OSDS_OFFICER');
+}
+
+export async function getOrgOfficers(): Promise<OfficerAccount[]> {
+  const db = loadDB();
+  return (db.officers || []).filter((o) => o.role === 'ORG_OFFICER' || o.role === 'OFFICER');
 }
 
 export async function addOfficerAccount(data: {
   name: string;
   email: string;
   department: string;
+  role?: 'OSDS_OFFICER' | 'ORG_OFFICER' | 'ADMIN' | 'OFFICER';
+  password?: string;
+  registeredById?: string;
 }): Promise<OfficerAccount> {
   const db = loadDB();
+  const role = data.role || 'ORG_OFFICER';
+  const plainPassword = data.password || 'password123';
+  const passwordHash = bcrypt.hashSync(plainPassword, 10);
+
+  // Check if email already exists
+  const existingIdx = (db.officers || []).findIndex(
+    (o) => o.email.toLowerCase() === data.email.trim().toLowerCase()
+  );
+
   const newOfficer: OfficerAccount = {
-    id: `officer-${Date.now()}`,
+    id: existingIdx >= 0 ? db.officers[existingIdx].id : `officer-${Date.now()}`,
     name: data.name.trim(),
     email: data.email.trim().toLowerCase(),
-    role: 'OFFICER',
+    role: role as any,
     department: data.department.trim(),
     status: 'ACTIVE',
     createdAt: getOfficialServerTimestamp(),
+    password: plainPassword,
+    passwordHash,
+    registeredById: data.registeredById,
   };
 
-  db.officers.push(newOfficer);
+  if (existingIdx >= 0) {
+    db.officers[existingIdx] = newOfficer;
+  } else {
+    db.officers.push(newOfficer);
+  }
   saveDB(db);
+
+  // Attempt sync with Prisma User table non-blockingly if configured
+  try {
+    if (prisma?.user) {
+      Promise.race([
+        prisma.user.upsert({
+          where: { email: newOfficer.email },
+          update: {
+            name: newOfficer.name,
+            role: newOfficer.role,
+            department: newOfficer.department,
+            passwordHash,
+          },
+          create: {
+            id: newOfficer.id,
+            name: newOfficer.name,
+            email: newOfficer.email,
+            role: newOfficer.role,
+            department: newOfficer.department,
+            passwordHash,
+          },
+        }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('DB timeout')), 500)),
+      ]).catch(() => {
+        // Fallback gracefully if database is offline
+      });
+    }
+  } catch {
+    // Non-blocking fallback
+  }
+
   return newOfficer;
+}
+
+export async function toggleOfficerStatus(id: string): Promise<OfficerAccount | null> {
+  const db = loadDB();
+  const officer = (db.officers || []).find((o) => o.id === id);
+  if (!officer) return null;
+
+  officer.status = officer.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE';
+  saveDB(db);
+  return officer;
 }
 
 export async function getCompetitionWinners(eventId?: string): Promise<CompetitionWinner[]> {
@@ -1161,4 +1442,147 @@ export async function getCompetitionWinners(eventId?: string): Promise<Competiti
     return db.winners.filter((w) => w.eventId === eventId);
   }
   return db.winners;
+}
+
+export async function getEvaluations(eventId?: string): Promise<any[]> {
+  const db = loadDB() as any;
+  const evals = db.evaluations || [];
+  if (eventId) {
+    return evals.filter((e: any) => e.eventId === eventId);
+  }
+  return evals;
+}
+
+// -------------------------------------------------------------
+// ADMIN RECORDS VAULT: ARCHIVE & DELETE CAPABILITIES
+// -------------------------------------------------------------
+export async function archiveRecord(
+  type: 'event' | 'registration' | 'attendance' | 'certificate' | 'evaluation',
+  id: string
+): Promise<boolean> {
+  const db = loadDB() as any;
+  let found = false;
+
+  if (type === 'event') {
+    const item = (db.events || []).find((e: any) => e.id === id);
+    if (item) {
+      item.isArchived = true;
+      found = true;
+    }
+  } else if (type === 'registration') {
+    const item = (db.registrations || []).find((r: any) => r.id === id);
+    if (item) {
+      item.isArchived = true;
+      found = true;
+    }
+  } else if (type === 'attendance') {
+    const item = (db.attendances || []).find((a: any) => a.id === id);
+    if (item) {
+      item.isArchived = true;
+      found = true;
+    }
+  } else if (type === 'certificate') {
+    const item = (db.certificates || []).find((c: any) => c.id === id);
+    if (item) {
+      item.isArchived = true;
+      found = true;
+    }
+  } else if (type === 'evaluation') {
+    const item = (db.evaluations || []).find((ev: any) => ev.id === id);
+    if (item) {
+      item.isArchived = true;
+      found = true;
+    }
+  }
+
+  if (found) {
+    saveDB(db);
+  }
+  return found;
+}
+
+export async function unarchiveRecord(
+  type: 'event' | 'registration' | 'attendance' | 'certificate' | 'evaluation',
+  id: string
+): Promise<boolean> {
+  const db = loadDB() as any;
+  let found = false;
+
+  if (type === 'event') {
+    const item = (db.events || []).find((e: any) => e.id === id);
+    if (item) {
+      item.isArchived = false;
+      found = true;
+    }
+  } else if (type === 'registration') {
+    const item = (db.registrations || []).find((r: any) => r.id === id);
+    if (item) {
+      item.isArchived = false;
+      found = true;
+    }
+  } else if (type === 'attendance') {
+    const item = (db.attendances || []).find((a: any) => a.id === id);
+    if (item) {
+      item.isArchived = false;
+      found = true;
+    }
+  } else if (type === 'certificate') {
+    const item = (db.certificates || []).find((c: any) => c.id === id);
+    if (item) {
+      item.isArchived = false;
+      found = true;
+    }
+  } else if (type === 'evaluation') {
+    const item = (db.evaluations || []).find((ev: any) => ev.id === id);
+    if (item) {
+      item.isArchived = false;
+      found = true;
+    }
+  }
+
+  if (found) {
+    saveDB(db);
+  }
+  return found;
+}
+
+export async function deleteRecord(
+  type: 'event' | 'registration' | 'attendance' | 'certificate' | 'evaluation' | 'officer',
+  id: string
+): Promise<boolean> {
+  const db = loadDB() as any;
+  let initialLen = 0;
+  let newLen = 0;
+
+  if (type === 'event') {
+    initialLen = (db.events || []).length;
+    db.events = (db.events || []).filter((e: any) => e.id !== id);
+    newLen = db.events.length;
+  } else if (type === 'registration') {
+    initialLen = (db.registrations || []).length;
+    db.registrations = (db.registrations || []).filter((r: any) => r.id !== id);
+    newLen = db.registrations.length;
+  } else if (type === 'attendance') {
+    initialLen = (db.attendances || []).length;
+    db.attendances = (db.attendances || []).filter((a: any) => a.id !== id);
+    newLen = db.attendances.length;
+  } else if (type === 'certificate') {
+    initialLen = (db.certificates || []).length;
+    db.certificates = (db.certificates || []).filter((c: any) => c.id !== id);
+    newLen = db.certificates.length;
+  } else if (type === 'evaluation') {
+    initialLen = (db.evaluations || []).length;
+    db.evaluations = (db.evaluations || []).filter((ev: any) => ev.id !== id);
+    newLen = db.evaluations.length;
+  } else if (type === 'officer') {
+    initialLen = (db.officers || []).length;
+    db.officers = (db.officers || []).filter((o: any) => o.id !== id);
+    newLen = db.officers.length;
+  }
+
+  if (newLen < initialLen) {
+    saveDB(db);
+    return true;
+  }
+  return false;
 }

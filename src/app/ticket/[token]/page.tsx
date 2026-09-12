@@ -8,6 +8,12 @@ import { getRegistrationByToken, formatClassDisplay } from '@/lib/dataService';
 import { StudentRegistration, CampusEvent } from '@/types';
 import { formatManilaDate, formatManilaTime, formatManilaDateTime } from '@/lib/timezone';
 
+const IconPrinter = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/>
+  </svg>
+);
+
 export default function PersonalAttendanceTicketPage() {
   const params = useParams();
   const token = (params?.token as string) || '';
@@ -82,7 +88,7 @@ export default function PersonalAttendanceTicketPage() {
       
       {/* Header */}
       <header style={{
-        background: '#0F172A',
+        background: 'linear-gradient(90deg, #1E3A8A 0%, #1D4ED8 100%)',
         color: '#FFFFFF',
         borderBottom: '3px solid #F59E0B',
       }}>
@@ -96,31 +102,48 @@ export default function PersonalAttendanceTicketPage() {
         }}>
           <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none' }}>
             <div style={{
-              width: '36px',
-              height: '36px',
-              borderRadius: '50%',
-              background: 'linear-gradient(135deg, #1E3A8A 0%, #D97706 100%)',
+              width: '38px',
+              height: '38px',
+              borderRadius: '10px',
+              background: '#0F172A',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontWeight: '800',
-              fontSize: '15px',
-              color: '#FFFFFF'
+              fontWeight: '900',
+              fontSize: '14px',
+              color: '#FFFFFF',
+              letterSpacing: '0.6px',
+              border: '1.5px solid rgba(255, 255, 255, 0.25)',
+              boxShadow: '0 3px 8px rgba(0, 0, 0, 0.3)'
             }}>
               URS
             </div>
             <div>
-              <div style={{ fontSize: '15px', fontWeight: '700', color: '#FFFFFF', lineHeight: 1.1 }}>
-                University of Rizal System
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#FFFFFF', lineHeight: 1.15 }}>
+                Paperless Campus
               </div>
-              <div style={{ fontSize: '11px', color: '#FBBF24', fontWeight: '600', textTransform: 'uppercase' }}>
-                Official Attendance Pass
+              <div style={{ fontSize: '10.5px', color: '#FDE68A', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                Official Attendance Pass • URS Cainta
               </div>
             </div>
           </Link>
 
-          <Link href="/" className="btn btn-secondary" style={{ fontSize: '13px', padding: '6px 14px' }}>
-            ← All Events
+          <Link href="/" style={{
+            fontSize: '12px',
+            fontWeight: '600',
+            padding: '7px 14px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            background: 'rgba(255, 255, 255, 0.12)',
+            color: '#FFFFFF',
+            border: '1px solid rgba(255, 255, 255, 0.25)',
+            borderRadius: '8px',
+            textDecoration: 'none',
+            backdropFilter: 'blur(8px)',
+            transition: 'all 0.15s ease'
+          }}>
+            Home
           </Link>
         </div>
       </header>
@@ -215,7 +238,7 @@ export default function PersonalAttendanceTicketPage() {
               fontWeight: '700',
               marginBottom: '24px'
             }}>
-              <span>🏫 {formatClassDisplay(
+              <span>{formatClassDisplay(
                 registration.department,
                 registration.yearLevel || registration.yearSection,
                 registration.section || registration.yearSection
@@ -237,7 +260,7 @@ export default function PersonalAttendanceTicketPage() {
             }}>
               <div>
                 <span style={{ color: '#64748B', fontWeight: '600' }}>Venue:</span>
-                <div style={{ color: '#1E40AF', fontWeight: '700' }}>📍 {event.venue}</div>
+                <div style={{ color: '#1E40AF', fontWeight: '700' }}>{event.venue}</div>
               </div>
 
               <div>
@@ -261,7 +284,7 @@ export default function PersonalAttendanceTicketPage() {
             </div>
 
             <p style={{ fontSize: '12px', color: '#94A3B8', marginBottom: '24px' }}>
-              💡 Tip: Take a screenshot or bookmark this URL on your mobile phone for fast scanning.
+              Tip: Take a screenshot or bookmark this URL on your mobile phone for fast scanning.
             </p>
 
             {/* Action Buttons */}
@@ -270,9 +293,9 @@ export default function PersonalAttendanceTicketPage() {
                 type="button"
                 onClick={() => window.print()}
                 className="btn btn-primary"
-                style={{ padding: '10px 24px' }}
+                style={{ padding: '10px 24px', display: 'flex', alignItems: 'center', gap: '8px' }}
               >
-                🖨️ Print / Save Pass
+                <IconPrinter /> Print / Save Pass
               </button>
               <Link href="/" className="btn btn-secondary" style={{ padding: '10px 24px' }}>
                 Return to Campus Events

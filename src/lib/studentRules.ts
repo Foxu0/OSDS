@@ -1,11 +1,11 @@
 // Official Student Information Rules for University of Rizal System – Cainta Campus
 
 export const ALLOWED_COURSES = [
-  'BT-Auto',
   'BSIT',
-  'BSE',
+  'BSED',
   'BEED',
   'BTLED',
+  'BT-Auto',
 ] as const;
 
 export type AllowedCourse = (typeof ALLOWED_COURSES)[number];
@@ -26,25 +26,38 @@ export type AllowedSection = (typeof ALLOWED_SECTIONS)[number];
 /**
  * OFFICIAL URS CAINTA CAMPUS COURSE → SECTION MAPPING:
  * - BSIT → D
- * - BT-Auto → E
- * - BTLED → A
+ * - BSED → B (also BSE for legacy compatibility)
  * - BEED → C
- * - BSE → B
+ * - BTLED → A
+ * - BT-Auto → E
  * 
  * Single source of truth for both frontend and backend.
  */
-export const COURSE_SECTION_MAP: Record<AllowedCourse, AllowedSection> = {
+export const COURSE_SECTION_MAP: Record<string, AllowedSection> = {
   'BSIT': 'D',
-  'BT-Auto': 'E',
-  'BTLED': 'A',
-  'BEED': 'C',
+  'BSED': 'B',
   'BSE': 'B',
+  'BEED': 'C',
+  'BTLED': 'A',
+  'BT-Auto': 'E',
 };
 
 export function getSectionForCourse(course: string): AllowedSection | null {
   if (!course) return null;
-  const clean = course.trim() as AllowedCourse;
+  const clean = course.trim();
   return COURSE_SECTION_MAP[clean] || null;
+}
+
+/**
+ * Automatically computes the Year & Section string (e.g. "3D", "3B", "2C", "1A", "4E").
+ * If Course or Year Level is not selected yet, returns "Automatically assigned".
+ */
+export function getAutoYearSection(course?: string, yearLevel?: string): string {
+  if (!course || !yearLevel) return 'Automatically assigned';
+  const digit = getYearDigit(yearLevel);
+  const section = getSectionForCourse(course);
+  if (!section) return 'Automatically assigned';
+  return `${digit}${section}`;
 }
 
 export interface YearSectionOption {
@@ -85,17 +98,19 @@ export function getYearSectionOptionsForCourse(course: string): YearSectionOptio
 export function isValidStudentId(studentId: string): boolean {
   if (!studentId || typeof studentId !== 'string') return false;
   const cleanId = studentId.trim().toUpperCase();
-  const studentIdRegex = /^C\d{4}_\d{5}$/;
+  const studentIdRegex = /^C\d{4}[-_]\d{5}$/;
   return studentIdRegex.test(cleanId);
 }
 
 export function normalizeStudentId(studentId: string): string {
   if (!studentId) return '';
-  return studentId.trim().toUpperCase();
+  return studentId.trim().toUpperCase().replace('_', '-');
 }
 
 export function isValidCourse(course: string): boolean {
-  return (ALLOWED_COURSES as readonly string[]).includes(course?.trim());
+  if (!course) return false;
+  const clean = course.trim();
+  return (ALLOWED_COURSES as readonly string[]).includes(clean) || clean === 'BSE';
 }
 
 export function isValidYearLevel(yearLevel: string): boolean {
@@ -110,7 +125,7 @@ export function isValidSection(section: string): boolean {
  * Verifies if Course + Section combination matches the official mapping
  */
 export function isValidCourseSectionCombination(course: string, section: string): boolean {
-  const cleanCourse = course?.trim() as AllowedCourse;
+  const cleanCourse = course?.trim();
   const cleanSection = section?.trim().toUpperCase();
   return COURSE_SECTION_MAP[cleanCourse] === cleanSection;
 }
@@ -213,12 +228,22 @@ export function validateStudentRegistrationInput(data: {
   if (!studentName || studentName.length < 2) {
     return { isValid: false, message: 'Full Name is required and must be at least 2 characters.' };
   }
+  if (studentName.length > 50) {
+    return { isValid: false, message: 'Full Name cannot exceed 50 characters.' };
+  }
 
   const rawId = data.studentNumber?.trim();
-  if (!rawId || !isValidStudentId(rawId)) {
+  if (!rawId) {
+    return { isValid: false, message: 'Student Number is required.' };
+  }
+  if (rawId.length > 20) {
+    return { isValid: false, message: 'Student Number cannot exceed 20 characters.' };
+  }
+  if (!isValidStudentId(rawId)) {
+    const currentYear = new Date().getFullYear();
     return {
       isValid: false,
-      message: 'Invalid Student ID format. Expected format: C + 4-digit enrollment year + "_" + 5-digit number (e.g. C2024_00179).',
+      message: `Invalid Student ID format. Expected format: C + 4-digit enrollment year + "-" + 5-digit number (e.g. C${currentYear}-00000).`,
     };
   }
   const studentNumber = normalizeStudentId(rawId);
@@ -274,7 +299,10 @@ export function validateStudentRegistrationInput(data: {
   }
   const yearLevel = yearLevelVal as AllowedYearLevel;
 
-  const email = data.email?.trim() || `${studentNumber.toLowerCase()}@urs.edu.ph`;
+  const email = (data.email?.trim() || `${studentNumber.toLowerCase()}@urs.edu.ph`);
+  if (email.length > 50) {
+    return { isValid: false, message: 'Email cannot exceed 50 characters.' };
+  }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
   if (!emailRegex.test(email)) {
     return { isValid: false, message: 'A valid email address is required.' };

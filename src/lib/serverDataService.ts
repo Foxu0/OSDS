@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
 import {
@@ -11,6 +12,9 @@ import {
   CompetitionWinner,
   CertificateType,
   EventStatus,
+  StudentAccount,
+  VerificationCodeRecord,
+  AccountStatus,
 } from '@/types';
 import { getOfficialServerTimestamp } from '@/lib/timezone';
 import { getEventRegistrationStatus, computeDefaultRegistrationWindow } from '@/lib/registrationWindow';
@@ -24,6 +28,7 @@ import {
   ALLOWED_YEAR_LEVELS,
   ALLOWED_SECTIONS,
 } from '@/lib/studentRules';
+import { DEMO_USERS } from '@/lib/demoUsers';
 
 export * from '@/lib/venues';
 export * from '@/lib/registrationWindow';
@@ -40,6 +45,9 @@ interface LocalDB {
   certificates: CertificateRecord[];
   officers: OfficerAccount[];
   winners: CompetitionWinner[];
+  students: StudentAccount[];
+  verificationCodes: VerificationCodeRecord[];
+  evaluations?: any[];
 }
 
 function getDefaultDB(): LocalDB {
@@ -280,6 +288,8 @@ function getDefaultDB(): LocalDB {
         certificateCode: 'URS-2026-WIN-99B2D4',
       },
     ],
+    students: [],
+    verificationCodes: [],
   };
 }
 
@@ -291,7 +301,10 @@ function loadDB(): LocalDB {
         if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
         const content = fs.readFileSync(bundledPath, 'utf-8');
         fs.writeFileSync(DB_FILE, content, 'utf-8');
-        return JSON.parse(content);
+        const parsed = JSON.parse(content);
+        parsed.students = parsed.students || [];
+        parsed.verificationCodes = parsed.verificationCodes || [];
+        return parsed;
       }
     }
     if (!fs.existsSync(DATA_DIR)) {
@@ -299,7 +312,10 @@ function loadDB(): LocalDB {
     }
     if (fs.existsSync(DB_FILE)) {
       const content = fs.readFileSync(DB_FILE, 'utf-8');
-      return JSON.parse(content);
+      const parsed = JSON.parse(content);
+      parsed.students = parsed.students || [];
+      parsed.verificationCodes = parsed.verificationCodes || [];
+      return parsed;
     }
   } catch (err) {
     console.error('Error reading local db file:', err);
@@ -1586,3 +1602,684 @@ export async function deleteRecord(
   }
   return false;
 }
+
+// -------------------------------------------------------------
+// STUDENT ACCOUNTS & AUTHENTICATION
+// -------------------------------------------------------------
+
+export async function getStudentByNumber(studentNumber: string): Promise<StudentAccount | null> {
+  if (!studentNumber) return null;
+  const cleanNum = normalizeStudentId(studentNumber);
+  const compactNum = cleanNum.replace(/[-_\s]/g, '');
+
+  // 1. Check Demo Student
+  const demoStudent = DEMO_USERS.find(
+    (u) =>
+      u.role === 'STUDENT' &&
+      u.studentNumber &&
+      (normalizeStudentId(u.studentNumber) === cleanNum ||
+        u.studentNumber.replace(/[-_\s]/g, '') === compactNum)
+  );
+  if (demoStudent) {
+    return {
+      id: demoStudent.id,
+      studentNumber: demoStudent.studentNumber || cleanNum,
+      name: demoStudent.name,
+      email: demoStudent.email,
+      course: 'BSIT',
+      yearLevel: '3rd Year',
+      section: 'D',
+      yearSection: '3D',
+      department: demoStudent.department || 'College of Computing Studies',
+      role: 'STUDENT',
+      status: 'ACTIVE',
+      passwordHash: bcrypt.hashSync(demoStudent.password, 10),
+      password: demoStudent.password,
+      createdAt: new Date('2026-01-01T00:00:00Z').toISOString(),
+      verifiedAt: new Date('2026-01-01T00:00:00Z').toISOString(),
+    };
+  }
+
+  // 2. Check Local Database
+  const db = loadDB();
+  const found = (db.students || []).find(
+    (s) =>
+      normalizeStudentId(s.studentNumber) === cleanNum ||
+      s.studentNumber.replace(/[-_\s]/g, '') === compactNum
+  );
+  if (found) return found;
+
+  // 3. Check Prisma Database if configured
+  try {
+    if (prisma?.user) {
+      const dbUser = await prisma.user.findFirst({
+        where: {
+          OR: [{ studentNumber: cleanNum }, { studentNumber: studentNumber.trim() }],
+        },
+      });
+      if (dbUser && dbUser.studentNumber) {
+        return {
+          id: dbUser.id,
+          studentNumber: dbUser.studentNumber,
+          name: dbUser.name,
+          email: dbUser.email,
+          course: dbUser.course || 'BSIT',
+          yearLevel: dbUser.yearLevel || '1st Year',
+          section: dbUser.yearSection?.slice(-1) || 'D',
+          yearSection: dbUser.yearSection || '1D',
+          department: dbUser.department || dbUser.course || 'BSIT',
+          role: 'STUDENT',
+          status: (dbUser.status as AccountStatus) || 'ACTIVE',
+          passwordHash: dbUser.passwordHash,
+          createdAt: dbUser.createdAt.toISOString(),
+          updatedAt: dbUser.updatedAt.toISOString(),
+        };
+      }
+    }
+  } catch (err) {
+    console.error('Prisma getStudentByNumber error:', err);
+  }
+
+  return null;
+}
+
+export async function getStudentByEmail(email: string): Promise<StudentAccount | null> {
+  if (!email) return null;
+  const cleanEmail = email.trim().toLowerCase();
+
+  // 1. Check Demo Student
+  const demoStudent = DEMO_USERS.find(
+    (u) => u.role === 'STUDENT' && u.email.toLowerCase() === cleanEmail
+  );
+  if (demoStudent) {
+    return {
+      id: demoStudent.id,
+      studentNumber: demoStudent.studentNumber || 'C2024-00179',
+      name: demoStudent.name,
+      email: demoStudent.email,
+      course: 'BSIT',
+      yearLevel: '3rd Year',
+      section: 'D',
+      yearSection: '3D',
+      department: demoStudent.department || 'College of Computing Studies',
+      role: 'STUDENT',
+      status: 'ACTIVE',
+      passwordHash: bcrypt.hashSync(demoStudent.password, 10),
+      password: demoStudent.password,
+      createdAt: new Date('2026-01-01T00:00:00Z').toISOString(),
+      verifiedAt: new Date('2026-01-01T00:00:00Z').toISOString(),
+    };
+  }
+
+  // 2. Check Local Database
+  const db = loadDB();
+  const found = (db.students || []).find((s) => s.email.toLowerCase() === cleanEmail);
+  if (found) return found;
+
+  // 3. Check Prisma Database
+  try {
+    if (prisma?.user) {
+      const dbUser = await prisma.user.findUnique({
+        where: { email: cleanEmail },
+      });
+      if (dbUser && dbUser.studentNumber) {
+        return {
+          id: dbUser.id,
+          studentNumber: dbUser.studentNumber,
+          name: dbUser.name,
+          email: dbUser.email,
+          course: dbUser.course || 'BSIT',
+          yearLevel: dbUser.yearLevel || '1st Year',
+          section: dbUser.yearSection?.slice(-1) || 'D',
+          yearSection: dbUser.yearSection || '1D',
+          department: dbUser.department || dbUser.course || 'BSIT',
+          role: 'STUDENT',
+          status: (dbUser.status as AccountStatus) || 'ACTIVE',
+          passwordHash: dbUser.passwordHash,
+          createdAt: dbUser.createdAt.toISOString(),
+          updatedAt: dbUser.updatedAt.toISOString(),
+        };
+      }
+    }
+  } catch (err) {
+    console.error('Prisma getStudentByEmail error:', err);
+  }
+
+  return null;
+}
+
+export async function createPendingStudentAccount(data: {
+  studentName: string;
+  studentNumber: string;
+  email: string;
+  course: string;
+  yearLevel?: string;
+  section?: string;
+  yearSection?: string;
+  yearSectionCode?: string;
+  password: string;
+}): Promise<{
+  success: boolean;
+  message: string;
+  student?: StudentAccount;
+  isExistingPending?: boolean;
+}> {
+  // Validate Student Details
+  const validation = validateStudentRegistrationInput(data);
+  if (!validation.isValid || !validation.normalized) {
+    return {
+      success: false,
+      message: validation.message || 'Invalid student information.',
+    };
+  }
+  const norm = validation.normalized;
+  const cleanNumber = norm.studentNumber;
+  const cleanEmail = norm.email.toLowerCase();
+
+  // Validate Password
+  if (!data.password || data.password.length < 6) {
+    return {
+      success: false,
+      message: 'Password must be at least 6 characters.',
+    };
+  }
+  if (data.password.length > 30) {
+    return {
+      success: false,
+      message: 'Password cannot exceed 30 characters.',
+    };
+  }
+
+
+  const db = loadDB();
+  db.students = db.students || [];
+
+  // Check Student Number Uniqueness
+  const existingByNumber = await getStudentByNumber(cleanNumber);
+  if (existingByNumber) {
+    if (existingByNumber.status === 'ACTIVE') {
+      return {
+        success: false,
+        message: 'This Student Number is already registered. If you forgot your password, use Forgot Password.',
+      };
+    }
+    if (existingByNumber.status === 'DEACTIVATED') {
+      return {
+        success: false,
+        message: 'This Student Number is associated with a deactivated account. Please contact campus administration.',
+      };
+    }
+    if (existingByNumber.status === 'PENDING') {
+      // If same email, allow updating pending details and re-sending code
+      if (existingByNumber.email.toLowerCase() === cleanEmail) {
+        const passwordHash = bcrypt.hashSync(data.password, 10);
+        existingByNumber.name = norm.studentName;
+        existingByNumber.course = norm.course;
+        existingByNumber.yearLevel = norm.yearLevel;
+        existingByNumber.section = norm.section;
+        existingByNumber.yearSection = norm.yearSection;
+        existingByNumber.department = norm.course;
+        existingByNumber.passwordHash = passwordHash;
+        existingByNumber.updatedAt = getOfficialServerTimestamp();
+        saveDB(db);
+        return {
+          success: true,
+          message: 'Verification code resent. Please verify your email to complete registration.',
+          student: existingByNumber,
+          isExistingPending: true,
+        };
+      }
+      return {
+        success: false,
+        message: 'This Student Number is currently reserved by a pending registration. Another person cannot claim this Student Number.',
+      };
+    }
+  }
+
+  // Check Email Uniqueness across all accounts
+  const demoEmailMatch = DEMO_USERS.find((u) => u.email.toLowerCase() === cleanEmail);
+  const officerEmailMatch = (db.officers || []).find((o) => o.email.toLowerCase() === cleanEmail);
+  const studentEmailMatch = await getStudentByEmail(cleanEmail);
+
+  if (demoEmailMatch || officerEmailMatch || (studentEmailMatch && studentEmailMatch.status === 'ACTIVE')) {
+    return {
+      success: false,
+      message: 'This email is already registered. If you forgot your password, use Forgot Password.',
+    };
+  }
+
+  // Create PENDING Account (Reserves Student Number immediately)
+  const passwordHash = bcrypt.hashSync(data.password, 10);
+  const newStudent: StudentAccount = {
+    id: `student-${Date.now()}`,
+    studentNumber: cleanNumber,
+    name: norm.studentName,
+    email: cleanEmail,
+    course: norm.course,
+    yearLevel: norm.yearLevel,
+    section: norm.section,
+    yearSection: norm.yearSection,
+    department: norm.course,
+    role: 'STUDENT',
+    status: 'PENDING',
+    passwordHash,
+    createdAt: getOfficialServerTimestamp(),
+    updatedAt: getOfficialServerTimestamp(),
+  };
+
+  db.students.push(newStudent);
+  saveDB(db);
+
+  // Sync to Prisma User table if database is connected
+  try {
+    if (prisma?.user) {
+      await prisma.user.upsert({
+        where: { email: cleanEmail },
+        update: {
+          name: newStudent.name,
+          studentNumber: newStudent.studentNumber,
+          role: 'STUDENT',
+          department: newStudent.department,
+          course: newStudent.course,
+          yearLevel: newStudent.yearLevel,
+          yearSection: newStudent.yearSection,
+          status: 'PENDING',
+          passwordHash,
+        },
+        create: {
+          id: newStudent.id,
+          name: newStudent.name,
+          email: newStudent.email,
+          studentNumber: newStudent.studentNumber,
+          role: 'STUDENT',
+          department: newStudent.department,
+          course: newStudent.course,
+          yearLevel: newStudent.yearLevel,
+          yearSection: newStudent.yearSection,
+          status: 'PENDING',
+          passwordHash,
+        },
+      });
+    }
+  } catch (err) {
+    // Non-blocking fallback
+  }
+
+  return {
+    success: true,
+    message: 'Pending account created and Student Number reserved. Verification code sent.',
+    student: newStudent,
+  };
+}
+
+// -------------------------------------------------------------
+// VERIFICATION CODES & OTP MANAGEMENT
+// -------------------------------------------------------------
+
+export async function createVerificationCode(
+  identifier: string,
+  email: string,
+  type: 'SIGNUP' | 'PASSWORD_RESET'
+): Promise<string> {
+  const db = loadDB();
+  db.verificationCodes = db.verificationCodes || [];
+
+  const cleanIdent = normalizeStudentId(identifier) || identifier.trim().toLowerCase();
+  const cleanEmail = email.trim().toLowerCase();
+
+  // Invalidate previous unused codes for this identifier and type
+  db.verificationCodes.forEach((vc) => {
+    if (
+      (vc.identifier === cleanIdent || vc.email === cleanEmail) &&
+      vc.type === type &&
+      !vc.used
+    ) {
+      vc.used = true;
+    }
+  });
+
+  // Generate cryptographically secure 6-digit random code
+  const code = crypto.randomInt(100000, 1000000).toString();
+  const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString(); // 10 minutes
+
+  const newCodeRecord: VerificationCodeRecord = {
+    id: `vc-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+    identifier: cleanIdent,
+    email: cleanEmail,
+    code,
+    type,
+    expiresAt,
+    used: false,
+    attempts: 0,
+    createdAt: getOfficialServerTimestamp(),
+  };
+
+  db.verificationCodes.push(newCodeRecord);
+  saveDB(db);
+
+  // Sync to Prisma if active
+  try {
+    if (prisma?.verificationCode) {
+      await prisma.verificationCode.create({
+        data: {
+          id: newCodeRecord.id,
+          identifier: newCodeRecord.identifier,
+          email: newCodeRecord.email,
+          code: newCodeRecord.code,
+          type: newCodeRecord.type,
+          expiresAt: new Date(newCodeRecord.expiresAt),
+          used: false,
+          attempts: 0,
+        },
+      });
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+
+  return code;
+}
+
+export async function verifyCode(
+  identifier: string,
+  code: string,
+  type: 'SIGNUP' | 'PASSWORD_RESET'
+): Promise<{ valid: boolean; message: string; record?: VerificationCodeRecord }> {
+  const db = loadDB();
+  db.verificationCodes = db.verificationCodes || [];
+
+  const cleanIdent = normalizeStudentId(identifier) || identifier.trim().toLowerCase();
+  const cleanCode = code.trim();
+
+  // Find latest active code record
+  const matchingRecords = db.verificationCodes
+    .filter(
+      (vc) =>
+        (vc.identifier === cleanIdent || vc.email === cleanIdent || vc.identifier === identifier.trim()) &&
+        vc.type === type &&
+        !vc.used
+    )
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const record = matchingRecords[0];
+
+  if (!record) {
+    return {
+      valid: false,
+      message: 'Verification code not found or already used. Please request a new code.',
+    };
+  }
+
+  // Check expiration
+  if (new Date(record.expiresAt).getTime() < Date.now()) {
+    record.used = true;
+    saveDB(db);
+    return {
+      valid: false,
+      message: 'Verification code has expired. Please request a new code.',
+    };
+  }
+
+  // Check brute force attempts
+  if (record.attempts >= 5) {
+    record.used = true;
+    saveDB(db);
+    return {
+      valid: false,
+      message: 'Too many invalid attempts. This verification code is locked. Please request a new code.',
+    };
+  }
+
+  if (record.code !== cleanCode) {
+    record.attempts += 1;
+    saveDB(db);
+    return {
+      valid: false,
+      message: `Invalid verification code. ${5 - record.attempts} attempts remaining.`,
+    };
+  }
+
+  // Success: mark as used
+  record.used = true;
+  saveDB(db);
+
+  try {
+    if (prisma?.verificationCode) {
+      await prisma.verificationCode.update({
+        where: { id: record.id },
+        data: { used: true, attempts: record.attempts },
+      });
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+
+  return {
+    valid: true,
+    message: 'Verification code confirmed.',
+    record,
+  };
+}
+
+export async function activateStudentAccount(studentNumber: string): Promise<boolean> {
+  const cleanNum = normalizeStudentId(studentNumber);
+  const db = loadDB();
+  db.students = db.students || [];
+
+  const student = db.students.find(
+    (s) => normalizeStudentId(s.studentNumber) === cleanNum
+  );
+
+  if (!student) return false;
+
+  student.status = 'ACTIVE';
+  student.verifiedAt = getOfficialServerTimestamp();
+  student.updatedAt = getOfficialServerTimestamp();
+  saveDB(db);
+
+  try {
+    if (prisma?.user) {
+      await prisma.user.updateMany({
+        where: { studentNumber: student.studentNumber },
+        data: { status: 'ACTIVE' },
+      });
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+
+  return true;
+}
+
+export async function resetStudentPassword(
+  studentNumber: string,
+  newPassword: string
+): Promise<{ success: boolean; message: string }> {
+  if (!newPassword || newPassword.length < 6) {
+    return { success: false, message: 'Password must be at least 6 characters.' };
+  }
+
+  const cleanNum = normalizeStudentId(studentNumber);
+  const db = loadDB();
+  db.students = db.students || [];
+
+  const student = db.students.find(
+    (s) => normalizeStudentId(s.studentNumber) === cleanNum
+  );
+
+  const passwordHash = bcrypt.hashSync(newPassword, 10);
+
+  if (student) {
+    student.passwordHash = passwordHash;
+    student.password = newPassword;
+    student.updatedAt = getOfficialServerTimestamp();
+    saveDB(db);
+  }
+
+  try {
+    if (prisma?.user) {
+      await prisma.user.updateMany({
+        where: { studentNumber: cleanNum },
+        data: { passwordHash },
+      });
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+
+  return {
+    success: true,
+    message: 'Password reset successfully! Please log in with your Student Number and new password.',
+  };
+}
+
+export async function getStudentDashboardData(
+  studentNumber: string,
+  email?: string
+): Promise<{
+  registrations: StudentRegistration[];
+  attendances: AttendanceRecord[];
+  certificates: CertificateRecord[];
+}> {
+  const db = loadDB();
+  const cleanNum = normalizeStudentId(studentNumber);
+  const cleanEmail = email?.trim().toLowerCase();
+
+  const registrations = (db.registrations || []).filter(
+    (r) =>
+      (cleanNum && normalizeStudentId(r.studentNumber) === cleanNum) ||
+      (cleanEmail && r.email?.toLowerCase() === cleanEmail)
+  );
+
+  const regIds = new Set(registrations.map((r) => r.id));
+
+  const attendances = (db.attendances || []).filter(
+    (a) =>
+      regIds.has(a.registrationId) ||
+      (cleanNum && normalizeStudentId(a.studentNumber) === cleanNum)
+  );
+
+  const certificates = (db.certificates || []).filter(
+    (c) =>
+      (cleanNum && c.recipientIdentifier && normalizeStudentId(c.recipientIdentifier) === cleanNum) ||
+      (cleanEmail && c.recipientEmail && c.recipientEmail.toLowerCase() === cleanEmail) ||
+      (c.registrationId && regIds.has(c.registrationId))
+  );
+
+  return {
+    registrations,
+    attendances,
+    certificates,
+  };
+}
+
+export async function deleteStudentAccount(
+  studentNumber: string
+): Promise<{
+  success: boolean;
+  message: string;
+  deletedCounts: {
+    students: number;
+    registrations: number;
+    attendances: number;
+    certificates: number;
+    verificationCodes: number;
+  };
+}> {
+  const cleanNum = normalizeStudentId(studentNumber);
+  const db = loadDB();
+  db.students = db.students || [];
+  db.registrations = db.registrations || [];
+  db.attendances = db.attendances || [];
+  db.certificates = db.certificates || [];
+  db.verificationCodes = db.verificationCodes || [];
+
+  const targetStudent = db.students.find(
+    (s) => normalizeStudentId(s.studentNumber) === cleanNum
+  );
+  const targetEmail = targetStudent?.email?.trim().toLowerCase();
+
+  // Find linked registrations
+  const studentRegIds = new Set(
+    db.registrations
+      .filter(
+        (r) =>
+          normalizeStudentId(r.studentNumber) === cleanNum ||
+          (targetEmail && r.email?.toLowerCase() === targetEmail)
+      )
+      .map((r) => r.id)
+  );
+
+  const initialStudentCount = db.students.length;
+  const initialRegCount = db.registrations.length;
+  const initialAttCount = db.attendances.length;
+  const initialCertCount = db.certificates.length;
+  const initialVcCount = db.verificationCodes.length;
+
+  db.registrations = db.registrations.filter(
+    (r) =>
+      !(
+        normalizeStudentId(r.studentNumber) === cleanNum ||
+        (targetEmail && r.email?.toLowerCase() === targetEmail)
+      )
+  );
+
+  db.attendances = db.attendances.filter(
+    (a) =>
+      !(
+        studentRegIds.has(a.registrationId) ||
+        normalizeStudentId(a.studentNumber) === cleanNum
+      )
+  );
+
+  db.certificates = db.certificates.filter(
+    (c) =>
+      !(
+        (c.recipientIdentifier &&
+          normalizeStudentId(c.recipientIdentifier) === cleanNum) ||
+        (targetEmail &&
+          c.recipientEmail &&
+          c.recipientEmail.toLowerCase() === targetEmail) ||
+        (c.registrationId && studentRegIds.has(c.registrationId))
+      )
+  );
+
+  db.verificationCodes = db.verificationCodes.filter(
+    (vc) =>
+      !(
+        (vc.identifier && normalizeStudentId(vc.identifier) === cleanNum) ||
+        (targetEmail && vc.email && vc.email.toLowerCase() === targetEmail)
+      )
+  );
+
+  db.students = db.students.filter(
+    (s) => normalizeStudentId(s.studentNumber) !== cleanNum
+  );
+
+  saveDB(db);
+
+  try {
+    if (prisma?.user) {
+      await prisma.user.deleteMany({
+        where: { studentNumber: cleanNum },
+      });
+    }
+  } catch (err) {
+    // Non-blocking
+  }
+
+  return {
+    success: true,
+    message: `Student account ${studentNumber} and all directly linked records deleted successfully.`,
+    deletedCounts: {
+      students: initialStudentCount - db.students.length,
+      registrations: initialRegCount - db.registrations.length,
+      attendances: initialAttCount - db.attendances.length,
+      certificates: initialCertCount - db.certificates.length,
+      verificationCodes: initialVcCount - db.verificationCodes.length,
+    },
+  };
+}
+
+export const deleteStudentByNumber = deleteStudentAccount;
+

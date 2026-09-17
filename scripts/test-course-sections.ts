@@ -7,6 +7,7 @@ import {
   isValidCourseSectionCombination,
   formatClassDisplay,
   validateStudentRegistrationInput,
+  normalizeStudentId,
   AllowedCourse,
 } from '../src/lib/studentRules';
 
@@ -41,7 +42,7 @@ const expectedCombos: Record<AllowedCourse, string[]> = {
   'BT-Auto': ['1-E', '2-E', '3-E', '4-E'],
   'BTLED': ['1-A', '2-A', '3-A', '4-A'],
   'BEED': ['1-C', '2-C', '3-C', '4-C'],
-  'BSE': ['1-B', '2-B', '3-B', '4-B'],
+  'BSED': ['1-B', '2-B', '3-B', '4-B'],
 };
 
 for (const course of ALLOWED_COURSES) {
@@ -142,7 +143,7 @@ for (const year of ['1st Year', '2nd Year', '3rd Year', '4th Year']) {
     section: 'D',
   });
   assert(
-    res.isValid && res.normalized?.studentNumber === 'C2024_00179',
+    res.isValid && res.normalized?.studentNumber === normalizeStudentId('C2024_00179'),
     `Student ID C2024_00179 remains invariant at ${year}`
   );
 }

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
+import { useSession } from 'next-auth/react';
 import QRCode from 'qrcode';
 import {
   getEventById,
@@ -52,6 +53,8 @@ const IconDownload = () => (
 export default function PublicEventPage() {
   const params = useParams();
   const eventId = (params?.id as string) || '';
+  const { data: session } = useSession();
+  const user = session?.user as any;
 
   const [event, setEvent] = useState<CampusEvent | null>(null);
   const [winners, setWinners] = useState<CompetitionWinner[]>([]);
@@ -65,6 +68,21 @@ export default function PublicEventPage() {
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState('');
+
+  // Auto-populate logged-in student info
+  useEffect(() => {
+    if (user && user.role === 'STUDENT') {
+      if (user.name) setStudentName(user.name);
+      if (user.studentNumber) setStudentNumber(user.studentNumber);
+      if (user.email) setEmail(user.email);
+      if (user.department && (ALLOWED_COURSES as readonly string[]).includes(user.department)) {
+        const c = user.department as AllowedCourse;
+        setCourse(c);
+        const options = getYearSectionOptionsForCourse(c);
+        setYearSectionCode(options[0]?.code || '');
+      }
+    }
+  }, [user]);
 
   // Personal Attendance Ticket Result
   const [regResult, setRegResult] = useState<{
@@ -146,7 +164,8 @@ export default function PublicEventPage() {
     }
 
     if (!isValidStudentId(cleanId)) {
-      setFormError('Invalid Student ID. Expected URS Cainta format: C + 4-digit enrollment year + "_" + 5-digit number (e.g. C2024_00179).');
+      const curYear = new Date().getFullYear();
+      setFormError(`Invalid Student ID. Expected format: C + 4-digit enrollment year + "-" + 5-digit number (e.g. C${curYear}-00000).`);
       return;
     }
 
@@ -538,14 +557,14 @@ export default function PublicEventPage() {
                   <input
                     type="text"
                     required
-                    placeholder="e.g. C2024_00179"
+                    placeholder={`e.g. C${new Date().getFullYear()}-00000`}
                     value={studentNumber}
                     onChange={(e) => setStudentNumber(e.target.value.toUpperCase())}
                     className="form-input"
                     style={{ fontFamily: 'monospace', fontWeight: '600' }}
                   />
                   <span style={{ fontSize: '11px', color: '#64748B', marginTop: '4px', display: 'block' }}>
-                    Based on enrollment year (e.g. C2024_00179). Does not change when advancing in year.
+                    Based on enrollment year (e.g. C{new Date().getFullYear()}-00000). Does not change when advancing in year.
                   </span>
                 </div>
 
@@ -563,7 +582,7 @@ export default function PublicEventPage() {
                     ))}
                   </select>
                   <span style={{ fontSize: '11px', color: '#64748B', marginTop: '4px', display: 'block' }}>
-                    Available: BT-Auto, BSIT, BSE, BEED, BTLED
+                    Available: BSIT, BSED, BEED, BTLED, BT-Auto
                   </span>
                 </div>
 

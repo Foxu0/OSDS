@@ -5,6 +5,8 @@
 // 'OFFICER' is kept for backward compatibility with legacy OfficerAccount seed data
 export type Role = 'STUDENT' | 'ORG_OFFICER' | 'OSDS_OFFICER' | 'ADMIN' | 'OFFICER';
 
+export type AccountStatus = 'PENDING' | 'ACTIVE' | 'DEACTIVATED';
+
 export type EventStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'UPCOMING' | 'ONGOING' | 'COMPLETED' | 'CANCELLED';
 
 export type RegistrationStatus = 'REGISTERED' | 'CANCELLED';
@@ -22,6 +24,38 @@ export interface UserSession {
   role: Role;
   department?: string | null;
   studentNumber?: string | null;
+  status?: AccountStatus;
+}
+
+export interface StudentAccount {
+  id: string;
+  studentNumber: string;
+  name: string;
+  email: string;
+  course: string;
+  yearLevel: string;
+  section: string;
+  yearSection: string;
+  department: string;
+  role: Role;
+  status: AccountStatus;
+  passwordHash: string;
+  password?: string;
+  createdAt: string;
+  updatedAt?: string;
+  verifiedAt?: string;
+}
+
+export interface VerificationCodeRecord {
+  id: string;
+  identifier: string; // studentNumber or email
+  email: string;
+  code: string;
+  type: 'SIGNUP' | 'PASSWORD_RESET';
+  expiresAt: string;
+  used: boolean;
+  attempts: number;
+  createdAt: string;
 }
 
 export interface OfficerAccount {

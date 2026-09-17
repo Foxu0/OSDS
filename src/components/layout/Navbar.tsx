@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import Image from 'next/image';
 import { useSession, signOut } from 'next-auth/react';
 import Link from 'next/link';
 
@@ -96,25 +97,19 @@ export default function Navbar() {
         gap: '12px',
         transition: 'opacity 0.15s ease'
       }}>
-        {/* URS Dark Blue Emblem */}
-        <div style={{
-          width: '38px',
-          height: '38px',
-          borderRadius: '10px',
-          background: '#0F172A',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontWeight: '900',
-          color: '#FFFFFF',
-          fontSize: '14px',
-          letterSpacing: '0.6px',
-          flexShrink: 0,
-          border: '1.5px solid rgba(255, 255, 255, 0.25)',
-          boxShadow: '0 3px 8px rgba(0, 0, 0, 0.3)'
-        }}>
-          URS
-        </div>
+        {/* Official URS Logo */}
+        <Image
+          src="/urs_logo.png"
+          alt="University of Rizal System Official Logo"
+          width={36}
+          height={46}
+          style={{
+            objectFit: 'contain',
+            flexShrink: 0,
+            filter: 'drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35))'
+          }}
+          priority
+        />
 
         <div>
           <div style={{

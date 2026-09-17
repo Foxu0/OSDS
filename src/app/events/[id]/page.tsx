@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Image from 'next/image';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
@@ -277,29 +278,37 @@ export default function PublicEventPage() {
           gap: '12px'
         }}>
           <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '12px', textDecoration: 'none' }}>
-            <div style={{
-              width: '38px',
-              height: '38px',
-              borderRadius: '10px',
-              background: '#0F172A',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              fontWeight: '900',
-              fontSize: '14px',
-              color: '#FFFFFF',
-              letterSpacing: '0.6px',
-              border: '1.5px solid rgba(255, 255, 255, 0.25)',
-              boxShadow: '0 3px 8px rgba(0, 0, 0, 0.3)'
-            }}>
-              URS
-            </div>
+            <Image
+              src="/urs_logo.png"
+              alt="University of Rizal System Official Logo"
+              width={36}
+              height={46}
+              style={{
+                objectFit: 'contain',
+                flexShrink: 0,
+                filter: 'drop-shadow(0 2px 5px rgba(0, 0, 0, 0.35))'
+              }}
+              priority
+            />
             <div>
-              <div style={{ fontSize: '15px', fontWeight: '800', color: '#FFFFFF', lineHeight: 1.15 }}>
+              <div style={{
+                fontSize: '15px',
+                fontWeight: '800',
+                color: '#FFFFFF',
+                lineHeight: 1.15,
+                letterSpacing: '-0.01em',
+              }}>
                 Paperless Campus
               </div>
-              <div style={{ fontSize: '10.5px', color: '#FDE68A', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
-                URS Cainta Campus • Events Portal
+              <div style={{
+                fontSize: '10.5px',
+                color: '#FDE68A',
+                fontWeight: '700',
+                textTransform: 'uppercase',
+                letterSpacing: '0.04em',
+                marginTop: '2px',
+              }}>
+                URS CAINTA CAMPUS • EVENTS PORTAL
               </div>
             </div>
           </Link>
